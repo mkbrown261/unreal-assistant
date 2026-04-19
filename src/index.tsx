@@ -631,22 +631,37 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
       <div class="step">
         <div class="step-num">1</div>
         <div>
-          <h3>Download &amp; drop the plugin folder into your project</h3>
-          <p>
-            Click download. Extract the zip. You get a folder called <code>MCPBlueprint</code>.<br/>
-            Find your Unreal project folder (the one with your <code>.uproject</code> file in it).<br/>
-            Create a <code>Plugins</code> folder inside it if one doesn't exist.<br/>
-            Copy <code>MCPBlueprint</code> into that <code>Plugins</code> folder.
-          </p>
-          <div class="code">YourGame\
-├── YourGame.uproject
-└── Plugins\
-    └── MCPBlueprint\          ← put it here
-        ├── MCPBlueprint.uplugin
-        └── Content\Python\...</div>
-          <div style="margin-top:16px;">
+          <h3>Download the zip and put the plugin folder in your project</h3>
+
+          <p><strong>1a — Download and extract</strong></p>
+          <p>Click the button below. Extract the zip. You'll get a folder called <code>MCPBlueprint</code>.</p>
+          <div style="margin-top:10px;margin-bottom:18px;">
             <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.1.0/MCPBlueprint-v1.1.0.zip" class="btn-primary" style="display:inline-block;text-decoration:none;">⬇ Download MCPBlueprint-v1.1.0.zip</a>
           </div>
+
+          <p><strong>1b — Find your Unreal project folder</strong></p>
+          <p>This is the folder that contains your <code>.uproject</code> file. For example:</p>
+          <div class="code">C:\Users\You\Documents\Unreal Projects\MyGame\
+    MyGame.uproject    ← this file tells you you're in the right place
+    Content\
+    Config\</div>
+
+          <p style="margin-top:16px;"><strong>1c — Create a Plugins folder</strong> <span style="color:var(--text3);font-size:13px;">(most projects don't have one yet — that's normal)</span></p>
+          <p>Inside your project folder, right-click on empty space:</p>
+          <div class="code">Windows: Right-click → New → Folder → name it "Plugins"
+Mac:     Right-click → New Folder → name it "Plugins"</div>
+          <p style="margin-top:10px;color:var(--text3);font-size:13px;">⚠️ It must be spelled exactly <code>Plugins</code> with a capital P. No spaces.</p>
+
+          <p style="margin-top:16px;"><strong>1d — Put MCPBlueprint inside Plugins</strong></p>
+          <p>Copy or drag the <code>MCPBlueprint</code> folder (from step 1a) into the <code>Plugins</code> folder you just created. The result should look like this:</p>
+          <div class="code">MyGame\
+├── MyGame.uproject
+├── Content\
+└── Plugins\                   ← you created this
+    └── MCPBlueprint\          ← you put this here
+        ├── MCPBlueprint.uplugin
+        └── Content\Python\</div>
+          <p style="margin-top:10px;color:var(--green);font-size:13px;font-weight:600;">✓ If you can see MCPBlueprint.uplugin inside Plugins\MCPBlueprint\ you're done with Step 1.</p>
         </div>
       </div>
 

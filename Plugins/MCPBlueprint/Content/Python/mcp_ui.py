@@ -566,13 +566,9 @@ def _generate(prompt, api_key, model_id):
                 except Exception:
                     pass
 
-                # Try to open the Blueprint in the editor
-                try:
-                    asset = _u.load_asset(f"/Game/MCP/{bp_name}.{bp_name}")
-                    if asset:
-                        _u.AssetEditorSubsystem().open_editor_for_assets([asset])
-                except Exception:
-                    pass
+                # NOTE: Do NOT call AssetEditorSubsystem().open_editor_for_assets()
+                # from within a Slate tick callback — it crashes UE 5.7 on macOS
+                # via FMRUList::AddMRUItem. User can double-click in Content Browser.
 
                 # Show result notification
                 if succeeded > 0:
@@ -580,9 +576,9 @@ def _generate(prompt, api_key, model_id):
                         f"Blueprint created: {bp_name}\n"
                         f"Location: /Game/MCP/{bp_name}\n"
                         f"Commands: {succeeded} ok, {failed} failed\n\n"
-                        f"The Blueprint editor should open automatically.\n"
-                        f"Check the Output Log for wiring instructions — search for\n"
-                        f"  [MCPBlueprint] BLUEPRINT LOGIC\n\n"
+                        f"Double-click {bp_name} in the Content Browser to open it.\n"
+                        f"Check the Output Log for wiring instructions — filter by:\n"
+                        f"  MCPBlueprint\n\n"
                         f"Click OK to generate another Blueprint."
                     )
                     _show_message(

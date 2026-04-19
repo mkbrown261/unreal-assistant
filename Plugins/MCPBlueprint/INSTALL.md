@@ -1,96 +1,151 @@
-# MCP Blueprint Generator — Installation
+# MCP Blueprint Generator v1.3.0 — Installation Guide
 
 ## Requirements
-- Unreal Engine 5.0 or later
-- An OpenAI API key (get one free at https://platform.openai.com/api-keys)
+- Unreal Engine **5.3 or later** (tested on UE 5.7 / macOS / Apple M4)
+- A FREE OpenRouter API key — get one at **https://openrouter.ai/keys**
 
 ---
 
-## Step 1 — Copy the plugin folder into your project
+## Step 1 — Copy the plugin into your project
 
-Find your Unreal project folder (where your `.uproject` file is).
-Inside it, create a folder called `Plugins` if one doesn't exist.
-Copy the entire `MCPBlueprint` folder into `Plugins/`.
+1. Find your Unreal project folder (where your `.uproject` file is).
+2. Create a `Plugins/` folder inside it if one doesn't already exist.
+3. Copy the entire `MCPBlueprint` folder into `Plugins/`.
 
-Result:
 ```
-MyGame/
-├── MyGame.uproject
+YourGame/
+├── YourGame.uproject
 └── Plugins/
-    └── MCPBlueprint/         ← paste here
+    └── MCPBlueprint/         ← put it here
         ├── MCPBlueprint.uplugin
+        ├── INSTALL.md
         └── Content/Python/
+            ├── init_unreal.py
+            ├── mcp_ui.py
+            ├── blueprint_executor.py
+            └── ai_panel.py
 ```
 
 ---
 
 ## Step 2 — Enable the plugin in Unreal
 
-Open your project in Unreal Engine.
-Go to **Edit → Plugins**, search for **"MCP Blueprint Generator"**, enable it, and restart the editor.
+1. Open your project in Unreal Engine.
+2. Go to **Edit → Plugins**, search for **"MCP Blueprint Generator"**, enable it.
+3. Restart the editor when prompted.
 
-After restart, open the **Output Log** (Window → Output Log).
-You should see:
+---
+
+## Step 3 — What to expect after restart
+
+After restarting the editor, wait a few seconds. You will see in the **Output Log**:
+
 ```
-[MCPBlueprint] MCP Blueprint Generator loaded.
-[MCPBlueprint] No OpenAI key saved yet.
-[MCPBlueprint] Set your key with: import ai_panel; ai_panel.set_key('sk-...')
+[MCPBlueprint] MCP Blueprint Generator v1.3.0 ready.
+[MCPBlueprint] Editor ready — opening MCP Blueprint Generator...
+```
+
+A native **modal dialog** will appear asking for your OpenRouter API key.
+
+**If it's your first time:**
+1. Go to **https://openrouter.ai/keys** and create a free account.
+2. Click **"Create Key"** and copy it (starts with `sk-or-v1-`).
+3. Paste it into the dialog and click **OK**.
+
+Your key is saved permanently — you only enter it once.
+
+---
+
+## Step 4 — Select a model and generate
+
+After entering your key, the dialog walks you through:
+
+1. **Model selection** — type a number (1–20) to pick an AI model, or press OK for the default (Claude Sonnet 4.5).
+2. **Describe your Blueprint** — type in plain English what you want.
+3. Click **OK** — watch the Output Log for progress.
+
+Your Blueprint appears in the **Content Browser under `/Game/MCP/`** within seconds.
+
+---
+
+## Reopening the UI
+
+To open the generator again at any time, use the **Output Log Python console**:
+
+```python
+import mcp_ui; mcp_ui.show()
 ```
 
 ---
 
-## Step 3 — Enter your OpenAI key (once)
-
-Open the **Output Log** panel → click the input box at the bottom (the Python console).
-Type this, replacing the key with your real one:
+## Console commands (power users)
 
 ```python
-import ai_panel; ai_panel.set_key("sk-your-real-key-here")
-```
+import mcp_ui
 
-Press Enter. The key is saved locally — you never need to enter it again.
+# Set or change your API key
+mcp_ui.set_key("sk-or-v1-your-key-here")
+
+# Generate directly without the dialog
+mcp_ui.run("Create an enemy AI that chases the player")
+mcp_ui.run("Create a door that opens on overlap", model="gpt-4o")
+
+# List all available models
+mcp_ui.list_models()
+
+# Check current settings
+mcp_ui.status()
+```
 
 ---
 
-## Step 4 — Generate a Blueprint
+## Available AI Models
 
-In the same Python console, type:
-
-```python
-import ai_panel; ai_panel.run("Create an enemy AI that chases the player and has 100 health")
-```
-
-Watch the Output Log. Within a few seconds:
-- The Blueprint appears in your Content Browser under `/Game/MCP/`
-- It is fully wired and compiled
-- The Content Browser scrolls to it automatically
+| # | Name | Best For |
+|---|------|----------|
+| 1 | Claude Sonnet 4.5 ⭐ | Best overall (recommended) |
+| 2 | Claude Opus 4.5 | Most capable |
+| 7 | Claude Haiku 4.5 | Fastest |
+| 9 | Gemini 2.5 Pro | Alternative |
+| 14 | DeepSeek V3.2 | Cost-efficient |
+| 19 | GPT-4o | OpenAI option |
+| 20 | GPT-4o Mini | Most affordable |
 
 ---
 
 ## Example prompts
 
 ```python
-ai_panel.run("Create a door that opens when the player walks near it")
-ai_panel.run("Create a health pickup that restores 25 health on overlap")
-ai_panel.run("Create an enemy that patrols between two points")
-ai_panel.run("Create a game mode that ends the game after 60 seconds")
+mcp_ui.run("Create an enemy AI that chases the player and has 100 health")
+mcp_ui.run("Create a door that opens when the player walks near it")
+mcp_ui.run("Create a health pickup that restores 25 health on overlap")
+mcp_ui.run("Create an enemy that patrols between two points")
+mcp_ui.run("Create a game mode that ends the game after 60 seconds")
+mcp_ui.run("Create a moving platform that loops back and forth")
+mcp_ui.run("Create a collectible coin that disappears when picked up")
 ```
 
 ---
 
 ## Troubleshooting
 
-**Plugin doesn't appear in Plugin Browser**
-→ Make sure the `MCPBlueprint` folder is directly inside `Plugins/`, not nested inside another folder.
+**"MCPBlueprint is Incompatible" warning on startup**
+→ This warning appeared in v1.2.0 because the plugin declared compatibility with UE 5.0.
+  v1.3.0 fixes this — the plugin now declares compatibility with UE 5.3+.
 
-**"No OpenAI key" error**
-→ Run `import ai_panel; ai_panel.set_key("sk-...")` in the Python console.
+**Dialog doesn't appear after restart**
+→ Wait 5–10 seconds after the editor finishes loading.
+→ If still no dialog, run in the Python console: `import mcp_ui; mcp_ui.show()`
 
-**"OpenAI HTTP 401" error**
-→ Your API key is invalid or expired. Generate a new one at https://platform.openai.com/api-keys
+**"No API key" error**
+→ Run: `import mcp_ui; mcp_ui.set_key("sk-or-v1-your-key")`
 
-**Blueprint not appearing in Content Browser**
-→ Check the Output Log for errors. Make sure your project has a `/Game/MCP/` folder (it's created automatically).
+**HTTP 401 error**
+→ Your key is invalid or expired. Create a new one at https://openrouter.ai/keys
+
+**Blueprint not in Content Browser**
+→ Check the Output Log for errors.
+→ The `/Game/MCP/` folder is created automatically on first use.
 
 **Need help?**
-→ Open an issue at https://github.com/mkbrown261/unreal-assistant/issues
+→ https://github.com/mkbrown261/unreal-assistant/issues

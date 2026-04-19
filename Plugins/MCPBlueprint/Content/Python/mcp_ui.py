@@ -545,54 +545,66 @@ _MENU_CMD = "import mcp_ui; mcp_ui.show()"
 
 def _register_menu():
     """
-    Add an "MCP Blueprint Generator" item to the Level Editor Tools menu.
+    Add an "MCP Blueprint Generator" sub-menu item to the Level Editor menu bar.
 
-    Implementation uses:
-      unreal.ToolMenus.get().extend_menu("LevelEditor.MainMenu.Tools")
-      entry.set_string_command(ToolMenuStringCommandType.PYTHON, ...)
+    Exact pattern confirmed working in UE 5.x Python (no subclassing needed):
+      1. menus.find_menu("LevelEditor.MainMenu")
+      2. main_menu.add_sub_menu(...)  → creates "MCP AI" top-level menu
+      3. entry.set_string_command(PYTHON, unreal.Name(""), string=...)
+      4. sub_menu.add_menu_entry(...)
+      5. menus.refresh_all_widgets()
 
-    This is the ONLY fully-working approach in UE 5.7 Python that does NOT
-    require subclassing ToolMenuEntryScript (which crashes at plugin startup).
+    The second arg to set_string_command MUST be unreal.Name("") — NOT "None".
     """
     import unreal
 
     try:
         menus = unreal.ToolMenus.get()
 
-        # "LevelEditor.MainMenu.Tools" is the standard UE Tools dropdown.
-        # extend_menu() is safe to call even before the menu is built.
-        menu = menus.extend_menu("LevelEditor.MainMenu.Tools")
+        # Find the Level Editor main menu bar.
+        # This returns None for the first few frames while the editor is loading.
+        main_menu = menus.find_menu("LevelEditor.MainMenu")
+        if not main_menu:
+            return False   # not ready yet — _on_tick will retry next frame
 
-        # Add a labelled section to keep it tidy
-        menu.add_section(
-            _MENU_SECTION,
-            label="MCP AI",
+        # Add "MCP AI" as a top-level menu on the menu bar
+        # (add_sub_menu owner arg = menu name string)
+        sub_menu = main_menu.add_sub_menu(
+            main_menu.get_name(),   # owner
+            _MENU_SECTION,          # section name
+            "MCPBlueprintMenu",     # internal name
+            "MCP AI",               # visible label on menu bar
         )
 
-        # Build the entry
+        # Build the single entry inside that sub-menu
         entry = unreal.ToolMenuEntry(
             name=_ENTRY_NAME,
             type=unreal.MultiBlockType.MENU_ENTRY,
-            should_close_window_after_menu_selection=True,
+            insert_position=unreal.ToolMenuInsert(
+                "", unreal.ToolMenuInsertType.FIRST
+            ),
         )
-        entry.set_label("🤖 MCP Blueprint Generator")
+        entry.set_label("🤖 Generate Blueprint with AI...")
         entry.set_tool_tip(
-            "Open the MCP Blueprint Generator dialog to create Blueprints with AI."
+            "Open the MCP Blueprint Generator — describe a Blueprint in plain "
+            "English and AI will create it inside your project."
         )
-        # PYTHON string command — fires import mcp_ui; mcp_ui.show() on click
+        # set_string_command: 2nd arg MUST be unreal.Name(""), NOT the string "None"
         entry.set_string_command(
             unreal.ToolMenuStringCommandType.PYTHON,
-            custom_type="None",
+            unreal.Name(""),
             string=_MENU_CMD,
         )
 
-        menu.add_menu_entry(_MENU_SECTION, entry)
+        sub_menu.add_menu_entry(_MENU_SECTION, entry)
         menus.refresh_all_widgets()
-        _log("✔ 'Tools → MCP Blueprint Generator' menu item added.")
+        _log("✔ 'MCP AI' menu added to the Level Editor menu bar.")
+        return True   # signal: success
 
     except Exception as e:
         _warn(f"Menu registration failed: {e}")
-        _log("You can still open the UI with: import mcp_ui; mcp_ui.show()")
+        _log("Fallback: import mcp_ui; mcp_ui.show()")
+        return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -601,16 +613,40 @@ def _register_menu():
 _startup_done  = False
 _tick_handler  = None
 
+_tick_count = 0   # count ticks so we can defer the dialog a few frames
+
 def _on_tick(delta):
-    """Slate post-tick callback — fires every frame after startup."""
-    global _startup_done, _tick_handler
+    """
+    Slate post-tick callback — fires every editor frame.
+    Waits until LevelEditor.MainMenu exists (a few frames after startup),
+    registers the menu once, then opens the startup dialog, then unregisters.
+    """
+    global _startup_done, _tick_handler, _tick_count
 
     if _startup_done:
         return
 
-    _startup_done = True
+    _tick_count += 1
 
-    # Unregister immediately so this only runs once.
+    # Safety: give up after 600 ticks (~10 s at 60 fps) to avoid looping forever
+    if _tick_count > 600:
+        _startup_done = True
+        _warn("Menu registration timed out after 600 ticks — giving up.")
+        _log("Open manually: import mcp_ui; mcp_ui.show()")
+        try:
+            import unreal
+            unreal.unregister_slate_post_tick_callback(_tick_handler)
+        except Exception:
+            pass
+        return
+
+    # Try to register the menu — returns False if not ready yet
+    menu_ok = _register_menu()
+    if not menu_ok:
+        return   # keep ticking, menu bar not ready yet
+
+    # Menu registered — unregister the tick callback, we're done with it
+    _startup_done = True
     try:
         import unreal
         if _tick_handler is not None:
@@ -618,44 +654,45 @@ def _on_tick(delta):
     except Exception:
         pass
 
-    # Register the menu NOW — editor is fully loaded at this point.
-    _register_menu()
-
-    _log("Editor ready — opening MCP Blueprint Generator...")
+    _log(f"Editor ready (tick {_tick_count}) — opening MCP Blueprint Generator...")
     try:
         _run_dialog()
     except Exception:
         _warn(f"Auto-open failed:\n{traceback.format_exc()}")
-        _log("Use Tools → MCP Blueprint Generator or: import mcp_ui; mcp_ui.show()")
+        _log("Click 'MCP AI' in the menu bar or: import mcp_ui; mcp_ui.show()")
 
 
 def _schedule_startup():
     """
-    Register a one-shot slate post-tick callback that fires once the editor
-    finishes its startup sequence, then registers the menu and opens the dialog.
-    This avoids call_on_game_thread (UE 5.7 doesn't have it) and threading hacks.
+    Register a repeating slate post-tick callback.
+    Each tick calls _on_tick(), which polls for LevelEditor.MainMenu,
+    registers the menu item once it appears, opens the startup dialog,
+    then unregisters itself.
     """
-    global _tick_handler
+    global _tick_handler, _startup_done, _tick_count
+
+    _startup_done = False
+    _tick_count   = 0
 
     import unreal
 
     try:
         _tick_handler = unreal.register_slate_post_tick_callback(_on_tick)
-        _log("Startup: slate tick registered — menu + UI will appear shortly.")
+        _log("Startup: slate tick callback registered.")
         return
     except AttributeError:
         pass
     except Exception as e:
         _warn(f"register_slate_post_tick_callback failed: {e}")
 
-    # Fallback: register menu and open dialog synchronously right now.
-    _warn("Tick callback unavailable — running startup synchronously.")
+    # Fallback: run synchronously right now (tick API unavailable)
+    _warn("Slate tick unavailable — running startup synchronously.")
     _register_menu()
     try:
         _run_dialog()
     except Exception as e:
         _warn(f"Sync open failed: {e}")
-        _log("Use Tools menu or: import mcp_ui; mcp_ui.show()")
+        _log("Open manually: import mcp_ui; mcp_ui.show()")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -1,25 +1,29 @@
 """
-mcp_ui.py — MCP Blueprint Generator v1.4.0
+mcp_ui.py — MCP Blueprint Generator v1.5.0
 UE 5.7.4 / macOS / Python 3.11
 
-FIXES IN 1.4.0
+FIXES IN 1.5.0
 ──────────────
-• Menu click NOW WORKS: uses ToolMenuEntryScript subclass with execute()
-  override — the ONLY reliable way to trigger Python from a menu click in UE 5.x.
-  set_string_command(PYTHON) is unreliable; the execute() override is guaranteed.
-• @unreal.uclass() classes defined at MODULE LEVEL only (not inside exec/functions).
-  Dynamic class creation per-call causes UE to crash or silently fail.
-• Removed all references to unreal.MCPModelEnum (does not exist in any UE version).
-• Model stored as index (int) + displayed as numbered list via show_message.
-• _prompt_text uses show_object_details_view with pre-defined module-level class.
-• init_unreal.py calls start() which registers menu + schedules startup dialog.
-• .uplugin EngineVersion bumped to 5.7.0.
+• Blueprint commands now always run on the Unreal MAIN THREAD via a
+  slate-tick queue (_main_queue).  UE 5.7 does NOT have
+  call_on_game_thread; running asset-creation APIs from a background
+  thread causes ZenLoader crashes and "FlushAsyncLoading from wrong
+  thread" errors.  We fetch the AI response on a background thread,
+  then post the resulting commands list to _main_queue; the next
+  Slate tick executes them synchronously on the game thread.
 
-HOW THE MENU CLICK WORKS
-─────────────────────────
-1. At startup, _register_menu() creates an MCPMenuEntryScript instance.
-2. MCPMenuEntryScript.execute() is called by UE when the menu item is clicked.
-3. execute() calls show() → _run_dialog() — guaranteed to run on game thread.
+• /Game/MCP directory is explicitly created (if missing) before the
+  first create_blueprint call, using EditorAssetLibrary.make_directory.
+
+• The Slate tick callback is now kept PERMANENTLY alive (not
+  unregistered after startup) so it can service _main_queue at any
+  time.  _startup_done prevents duplicate dialog openings.
+
+• All other 1.4.0 fixes are preserved:
+  - ToolMenuEntryScript.execute() override for reliable menu clicks.
+  - @unreal.uclass() classes defined at module level (not in exec()).
+  - No unreal.MCPModelEnum (removed).
+  - Model stored as index + plain-string list.
 
 REOPEN AT ANY TIME
 ──────────────────
@@ -28,6 +32,7 @@ REOPEN AT ANY TIME
 
 import json
 import os
+import queue
 import threading
 import traceback
 
@@ -36,6 +41,17 @@ try:
     _IN_UNREAL = True
 except ImportError:
     _IN_UNREAL = False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main-thread work queue
+#
+# Background threads post callables here; the permanent slate tick callback
+# drains the queue on the game thread.  This is the only safe way to call
+# Unreal asset APIs from code that originated outside the game thread in
+# UE 5.7 (which lacks unreal.call_on_game_thread).
+# ─────────────────────────────────────────────────────────────────────────────
+_main_queue = queue.Queue()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -125,7 +141,8 @@ SYSTEM_PROMPT = (
     '{"action":"add_node","blueprint":"BP_Name","node":"Print String","id":"n1","x":300,"y":0},'
     '{"action":"connect_nodes","blueprint":"BP_Name","from_node":"n0","from_pin":"Then","to_node":"n1","to_pin":"Execute"},'
     '{"action":"compile_blueprint","name":"BP_Name"}]}\n\n'
-    "Rules: BP_ prefix PascalCase. parent_class: Actor/Character/Pawn/GameModeBase/PlayerController. "
+    "Rules: BP_ prefix PascalCase. parent_class: Actor/Character/Pawn/ActorComponent/"
+    "GameModeBase/PlayerController. "
     "Nodes: Event BeginPlay, Event Tick, Event ActorBeginOverlap, Branch, Print String, "
     "Delay, Get Player Pawn, Get Actor Location, Set Actor Location, Destroy Actor, AI Move To. "
     "Unique node ids. compile_blueprint must be last. Return ONLY the JSON."
@@ -133,31 +150,17 @@ SYSTEM_PROMPT = (
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# UObject classes for show_object_details_view text input
-#
-# CRITICAL: These MUST be defined at module level, NOT inside functions.
-# UE 5.7 Python crashes or silently fails when @unreal.uclass() is used
-# inside exec(), lambda, or non-module-level scope.
-#
-# We define ONE class per "form field" we need. The same class instance
-# is reused across calls by resetting the property before showing.
+# UObject classes — MUST be at module level (UE 5.7 requirement)
 # ─────────────────────────────────────────────────────────────────────────────
-
-# This guard ensures we only define the classes once per Python session.
-# If this module is reloaded (importlib.reload), the classes already exist
-# in the unreal type system and re-defining them would error.
 _UE_CLASSES_READY = False
-
-# These will be set to the actual classes after _init_ue_classes() runs.
-MCPTextInputObj  = None   # single text field — used for API key, model#, prompt
-MCPMenuScript    = None   # ToolMenuEntryScript subclass that calls show()
+MCPTextInputObj   = None   # uproperty text field for show_object_details_view
+MCPMenuScript     = None   # ToolMenuEntryScript subclass
 
 
 def _init_ue_classes():
     """
-    Register UE Python uclasses. Called once from start() after Unreal loads.
-    Defining them here (called lazily) avoids errors if the module is imported
-    before the Unreal Python environment is fully initialized.
+    Register UE Python uclasses.  Called once from start() after Unreal loads.
+    Classes must be at module scope — dynamic class creation per-call crashes UE 5.7.
     """
     global _UE_CLASSES_READY, MCPTextInputObj, MCPMenuScript
 
@@ -168,27 +171,20 @@ def _init_ue_classes():
 
     import unreal as _u
 
-    # ── Text input dialog object ──────────────────────────────────────────────
-    # show_object_details_view shows this object's properties as editable fields.
-    # 'value' is the only property — it becomes a multiline text box.
+    # ── Text input object ─────────────────────────────────────────────────────
     @_u.uclass()
     class _MCPTextInput(_u.Object):
         """Type your input below and click OK."""
-        value = _u.uproperty(str, meta=dict(
-            DisplayName="Input",
-            MultiLine=True,
-        ))
+        value = _u.uproperty(str, meta=dict(DisplayName="Input", MultiLine=True))
 
     MCPTextInputObj = _MCPTextInput
 
-    # ── Menu entry script — execute() is called by UE on menu click ───────────
+    # ── Menu entry script — execute() fires on menu click ────────────────────
     # This is the ONLY reliable way to run Python from a menu in UE 5.x.
-    # set_string_command(PYTHON, ...) is unreliable in UE 5.7 on macOS.
     @_u.uclass()
     class _MCPMenuEntry(_u.ToolMenuEntryScript):
         @_u.ufunction(override=True)
         def execute(self, context):
-            """Called by UE when the menu item is clicked."""
             try:
                 show()
             except Exception:
@@ -201,25 +197,19 @@ def _init_ue_classes():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# _prompt_text — show a modal text-input dialog (UE 5.7 compatible)
+# Text-input dialog (UE 5.7 compatible)
 # ─────────────────────────────────────────────────────────────────────────────
 def _prompt_text(title, field_label, default_value="", hint=""):
     """
     Show a modal dialog with a single editable text field.
-    Returns the text the user typed, or None if cancelled/closed.
-
-    Uses show_object_details_view — the ONLY real text-input dialog in UE 5.7.
-    Falls back to show_message + console instructions if unavailable.
+    Returns the text the user typed, or None if cancelled.
     """
     import unreal as _u
 
-    # Strategy A: show_object_details_view with pre-defined uclass
+    # Strategy A: show_object_details_view (preferred)
     if MCPTextInputObj is not None:
         try:
             obj = _u.new_object(MCPTextInputObj)
-            # Show hint in the property label
-            # We can't change the class docstring at runtime, but we CAN
-            # set the initial value so the user sees the default.
             obj.set_editor_property("value", str(default_value))
 
             opts = _u.EditorDialogLibraryObjectDetailsViewOptions()
@@ -227,7 +217,7 @@ def _prompt_text(title, field_label, default_value="", hint=""):
             opts.allow_search             = False
             opts.allow_resizing           = True
             opts.min_width                = 560
-            opts.min_height               = 120
+            opts.min_height               = 140
             opts.value_column_width_ratio = 0.72
 
             ok = _u.EditorDialog.show_object_details_view(
@@ -241,7 +231,7 @@ def _prompt_text(title, field_label, default_value="", hint=""):
         except Exception as e:
             _warn(f"show_object_details_view failed: {e}")
 
-    # Strategy B: show_text_input_dialog (exists in some UE 5.x builds)
+    # Strategy B: show_text_input_dialog (some UE builds)
     if hasattr(_u.EditorDialog, "show_text_input_dialog"):
         try:
             return _u.EditorDialog.show_text_input_dialog(
@@ -252,20 +242,18 @@ def _prompt_text(title, field_label, default_value="", hint=""):
         except Exception as e:
             _warn(f"show_text_input_dialog failed: {e}")
 
-    # Strategy C: last-resort show_message with console instructions
+    # Strategy C: console instructions
     _warn("No native text input available — showing console instructions.")
     _u.EditorDialog.show_message(
         title,
         (
             f"{hint}\n\n"
-            "─────────────────────────────────\n"
             "No native text input available.\n"
             "In the Output Log Python console, run:\n\n"
             "  import mcp_ui\n"
             "  mcp_ui.run(\"describe your blueprint here\")\n\n"
             "To set API key:\n"
             "  mcp_ui.set_key(\"sk-or-v1-...\")\n"
-            "─────────────────────────────────"
         ),
         _u.AppMsgType.OK,
         _u.AppReturnType.OK,
@@ -275,13 +263,23 @@ def _prompt_text(title, field_label, default_value="", hint=""):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Blueprint generation (background thread)
+# Blueprint generation
+#
+# THREADING MODEL (UE 5.7 — no call_on_game_thread):
+#   1. _generate() spawns a daemon thread (_fetch_worker).
+#   2. _fetch_worker calls the OpenRouter HTTP API (blocking I/O — fine
+#      on a background thread).
+#   3. On success it posts _apply_on_main_thread() to _main_queue.
+#   4. The permanent slate tick callback (_tick_drain) drains _main_queue
+#      on the game thread, so all Unreal asset APIs run safely.
 # ─────────────────────────────────────────────────────────────────────────────
-def _generate(prompt, api_key, model_id):
-    """Send prompt to OpenRouter and execute returned Blueprint commands."""
 
-    def _worker():
+def _generate(prompt, api_key, model_id):
+    """Kick off AI fetch + Blueprint creation (returns immediately)."""
+
+    def _fetch_worker():
         import urllib.request, urllib.error
+
         try:
             import blueprint_executor
         except Exception as e:
@@ -289,7 +287,7 @@ def _generate(prompt, api_key, model_id):
             return
 
         try:
-            _log(f"Calling {model_id} ...")
+            _log(f"Calling {model_id} …")
             payload = json.dumps({
                 "model": model_id,
                 "temperature": 0.2,
@@ -315,7 +313,7 @@ def _generate(prompt, api_key, model_id):
                 data = json.loads(r.read().decode())
 
             content = data["choices"][0]["message"]["content"].strip()
-            # Strip markdown code fences if present
+            # Strip markdown fences
             if content.startswith("```"):
                 content = "\n".join(
                     line for line in content.split("\n")
@@ -328,86 +326,75 @@ def _generate(prompt, api_key, model_id):
             _log(f"AI returned {len(commands)} commands → {bp_name}")
 
             if not commands:
-                _err("No commands in AI response. Try rephrasing your prompt.")
+                _err("No commands in AI response.  Try rephrasing your prompt.")
                 return
 
-            # Execute on main thread if possible, else direct
-            holder = {}
-            evt = threading.Event()
-
-            def _exec():
+            # Post to main-thread queue for safe Unreal API access
+            def _apply():
                 try:
-                    holder["r"] = blueprint_executor.execute_batch(commands)
+                    batch = blueprint_executor.execute_batch(commands)
+                    if batch.get("success"):
+                        _log(f"✅ {bp_name} created — {batch.get('succeeded',0)}/{batch.get('total',0)} commands ok")
+                        _log(f"   Content Browser → /Game/MCP/{bp_name}")
+                        try:
+                            import unreal as _u
+                            _u.EditorAssetLibrary.sync_browser_to_objects([f"/Game/MCP/{bp_name}"])
+                        except Exception:
+                            pass
+                    else:
+                        _warn(f"Partial result: {batch.get('succeeded',0)} ok / {batch.get('failed',0)} failed")
+                        for r2 in batch.get("results", []):
+                            if not r2.get("success"):
+                                _warn(f"  FAIL: {r2.get('message','?')}")
+                        if batch.get('succeeded', 0) > 0:
+                            _log(f"   Partial Blueprint may exist at /Game/MCP/{bp_name}")
                 except Exception:
-                    holder["r"] = {"success": False, "results": []}
-                finally:
-                    evt.set()
+                    _err(f"Blueprint apply failed:\n{traceback.format_exc()}")
 
-            try:
-                import unreal as _u
-                _u.call_on_game_thread(_exec)
-                evt.wait(60)
-            except AttributeError:
-                _exec()  # UE 5.7: no call_on_game_thread, call directly
-
-            batch = holder.get("r", {"success": False, "results": []})
-            if batch.get("success"):
-                _log(f"✅ {bp_name} created ({batch.get('succeeded',0)}/{batch.get('total',0)} ok)")
-                _log(f"   Content Browser → /Game/MCP/{bp_name}")
-                try:
-                    import unreal as _u
-                    _u.EditorAssetLibrary.sync_browser_to_objects([f"/Game/MCP/{bp_name}"])
-                except Exception:
-                    pass
-            else:
-                _warn(f"Partial: {batch.get('succeeded',0)} ok / {batch.get('failed',0)} failed")
-                for r2 in batch.get("results", []):
-                    if not r2.get("success"):
-                        _warn(f"  FAIL: {r2.get('message','?')}")
+            _main_queue.put(_apply)
+            _log("Blueprint commands queued for main-thread execution …")
 
         except urllib.error.HTTPError as e:
             _err(f"HTTP {e.code}: {e.read().decode(errors='replace')[:300]}")
         except json.JSONDecodeError as e:
             _err(f"Bad JSON from AI: {e}")
         except Exception:
-            _err(f"Unexpected:\n{traceback.format_exc()}")
+            _err(f"Unexpected error:\n{traceback.format_exc()}")
 
-    threading.Thread(target=_worker, daemon=True, name="MCPGen").start()
+    threading.Thread(target=_fetch_worker, daemon=True, name="MCPFetch").start()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# _run_dialog — main dialog flow (must be called on game/main thread)
+# Dialog flow (game thread only)
 # ─────────────────────────────────────────────────────────────────────────────
 def _run_dialog():
     """
     Open the MCP Blueprint Generator dialog chain.
-    MUST be called on the Unreal main/game thread.
-    Each step uses show_object_details_view or show_message.
+    Must be called on the Unreal main/game thread.
     """
     import unreal as _u
 
-    # ── STEP 1: API key (first-time only) ────────────────────────────────────
+    # STEP 1: API key
     saved_key = _get("api_key", "")
     if not saved_key:
-        # Explain where to get the key
         ret = _u.EditorDialog.show_message(
             "MCP Blueprint Generator — Setup Required",
             (
-                "Welcome! You need a FREE OpenRouter API key to use this plugin.\n\n"
+                "Welcome! You need a FREE OpenRouter API key.\n\n"
                 "HOW TO GET YOUR KEY (1 minute):\n"
                 "  1. Go to:  https://openrouter.ai/keys\n"
                 "  2. Create a free account\n"
                 "  3. Click 'Create Key'\n"
-                "  4. Copy your key (starts with  sk-or-v1-)\n\n"
-                "Click OK to paste your key in the next dialog.\n"
-                "Click Cancel to skip for now."
+                "  4. Copy the key (starts with  sk-or-v1-)\n\n"
+                "Click OK to paste your key.\n"
+                "Click Cancel to skip (use console: mcp_ui.set_key('sk-or-v1-...'))"
             ),
             _u.AppMsgType.OK_CANCEL,
             _u.AppReturnType.OK,
             _u.AppMsgCategory.INFO,
         )
         if ret != _u.AppReturnType.OK:
-            _log("Setup cancelled. Run  import mcp_ui; mcp_ui.show()  to try again.")
+            _log("Setup cancelled.  Run:  import mcp_ui; mcp_ui.show()")
             return
 
         key_val = _prompt_text(
@@ -415,8 +402,7 @@ def _run_dialog():
             field_label="OpenRouter API Key",
             default_value="sk-or-v1-",
             hint=(
-                "Paste your OpenRouter API key below.\n"
-                "It starts with:  sk-or-v1-\n"
+                "Paste your OpenRouter API key (starts with sk-or-v1-)\n"
                 "Get one FREE at:  https://openrouter.ai/keys"
             ),
         )
@@ -424,7 +410,7 @@ def _run_dialog():
         if not key_val or not key_val.strip() or key_val.strip() == "sk-or-v1-":
             _u.EditorDialog.show_message(
                 "MCP Blueprint Generator",
-                "No API key entered.\n\nRun this to try again:\n  import mcp_ui; mcp_ui.show()",
+                "No API key entered.\n\nRun:  import mcp_ui; mcp_ui.show()",
                 _u.AppMsgType.OK,
                 _u.AppReturnType.OK,
                 _u.AppMsgCategory.WARNING,
@@ -433,9 +419,9 @@ def _run_dialog():
 
         saved_key = key_val.strip()
         _set("api_key", saved_key)
-        _log(f"API key saved (ends: ...{saved_key[-8:]})")
+        _log(f"API key saved (ends: …{saved_key[-8:]})")
 
-    # ── STEP 2: Model selection ───────────────────────────────────────────────
+    # STEP 2: Model selection
     saved_model = _get("model", DEFAULT_MODEL)
     try:
         cur_idx = MODEL_IDS.index(saved_model)
@@ -472,7 +458,7 @@ def _run_dialog():
     _set("model", model_id)
     _log(f"Model: {model_id}")
 
-    # ── STEP 3: Blueprint description ─────────────────────────────────────────
+    # STEP 3: Blueprint description
     prompt_val = _prompt_text(
         title=f"MCP — Describe Your Blueprint  [{model_label}]",
         field_label="Blueprint description",
@@ -480,12 +466,12 @@ def _run_dialog():
         hint=(
             "Describe the Blueprint you want in plain English.\n\n"
             "EXAMPLES:\n"
+            "  Create a reusable actor component for swimming\n"
             "  Create an enemy AI that chases the player\n"
             "  Create a door that opens when the player walks near it\n"
             "  Create a health pickup that gives 25 HP on overlap\n"
-            "  Create a turret that rotates toward the player every tick\n"
-            "  Create a collectible coin that disappears on pickup\n\n"
-            "Watch the Output Log for progress."
+            "  Create a turret that rotates toward the player every tick\n\n"
+            "Watch the Output Log for progress (generation takes ~10-30 s)."
         ),
     )
 
@@ -497,79 +483,64 @@ def _run_dialog():
     _log("=" * 60)
     _log(f"Prompt : {prompt}")
     _log(f"Model  : {model_id}")
-    _log("Generating Blueprint... (watch Output Log for results)")
+    _log("Generating … watch Output Log.  Blueprint will appear in /Game/MCP/")
     _log("=" * 60)
 
     _generate(prompt, saved_key, model_id)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Menu registration — ToolMenuEntryScript with execute() override
+# Menu registration
 # ─────────────────────────────────────────────────────────────────────────────
-_menu_entry_instance = None   # keep alive to prevent GC
+_menu_entry_instance = None
 
 def _register_menu():
     """
-    Add 'MCP AI → 🤖 Generate Blueprint with AI...' to the Level Editor.
-
-    Uses ToolMenuEntryScript.execute() override — the ONLY reliably working
-    way to invoke Python from a menu click in UE 5.7 on macOS.
-    Requires MCPMenuScript class to be initialized (_init_ue_classes must run first).
+    Add 'MCP AI → Generate Blueprint with AI…' to the Level Editor menu bar.
     Returns True on success, False if not ready yet.
     """
     global _menu_entry_instance
 
     if not _UE_CLASSES_READY or MCPMenuScript is None:
-        return False  # classes not ready yet
+        return False
 
     import unreal as _u
 
     try:
         menus = _u.ToolMenus.get()
-
-        # Check the main menu is ready (returns None for first few frames)
         main_menu = menus.find_menu("LevelEditor.MainMenu")
         if not main_menu:
-            return False  # not ready yet
+            return False
 
-        # Step 1: Create the "MCP AI" top-level sub-menu on the menu bar.
-        # This MUST happen before init_entry references its name.
-        # add_sub_menu args: owner, section, name (internal), label (visible)
+        # 1. Create the "MCP AI" top-level sub-menu FIRST
         sub_menu = main_menu.add_sub_menu(
-            main_menu.get_name(),    # owner = parent menu name
-            "MCPBlueprintSection",   # section (groups sub-menus visually)
-            "MCPBlueprintMenu",      # internal name → full path becomes
-                                     # "LevelEditor.MainMenu.MCPBlueprintMenu"
-            "MCP AI",                # visible label shown in the menu bar
+            main_menu.get_name(),
+            "MCPBlueprintSection",
+            "MCPBlueprintMenu",
+            "MCP AI",
         )
 
         if not sub_menu:
             _warn("add_sub_menu returned None — menu bar not ready yet.")
             return False
 
-        # Step 2: Create the ToolMenuEntryScript instance and configure it.
-        # The 'menu' arg MUST match the full path of the sub_menu created above.
+        # 2. Create the entry script and configure it
         entry_script = _u.new_object(MCPMenuScript)
         entry_script.init_entry(
-            "MCPBlueprintPlugin",               # owner_name
-            "LevelEditor.MainMenu.MCPBlueprintMenu",  # menu (full path)
-            "MCPSection",                       # section inside the sub-menu
-            "MCPGenerateBlueprint",             # entry name (internal)
-            "Generate Blueprint with AI...",    # label (visible)
-            "Open MCP Blueprint Generator — describe a Blueprint in plain English.",  # tooltip
+            "MCPBlueprintPlugin",
+            "LevelEditor.MainMenu.MCPBlueprintMenu",
+            "MCPSection",
+            "MCPGenerateBlueprint",
+            "Generate Blueprint with AI...",
+            "Open MCP Blueprint Generator — describe a Blueprint in plain English.",
         )
 
-        # Step 3: Register the entry with the ToolMenus system.
-        # This makes UE call execute() when the menu item is clicked.
+        # 3. Register with the ToolMenus system
         entry_script.register_menu_entry()
-
         _u.ToolMenus.get().refresh_all_widgets()
 
-        # Keep alive — Python GC would destroy the entry script otherwise
-        _menu_entry_instance = entry_script
-
-        _log("✔ 'MCP AI' menu registered in Level Editor menu bar.")
-        _log("  Click  MCP AI → Generate Blueprint with AI...  to open the dialog.")
+        _menu_entry_instance = entry_script  # prevent GC
+        _log("✔ 'MCP AI' menu registered. Click  MCP AI → Generate Blueprint with AI...")
         return True
 
     except Exception as e:
@@ -578,78 +549,88 @@ def _register_menu():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Startup sequence — register menu + open dialog once after editor loads
+# Permanent Slate tick callback
+#
+# Unlike v1.4.0, this callback is NEVER unregistered after startup.
+# It performs two duties:
+#   A) Startup: wait for editor ready → register menu → open dialog once.
+#   B) Ongoing: drain _main_queue each frame (executes Blueprint commands
+#      safely on the game thread).
 # ─────────────────────────────────────────────────────────────────────────────
-_startup_done = False
-_tick_handler = None
-_tick_count   = 0
+_startup_done   = False
+_menu_done      = False
+_tick_handler   = None
+_tick_count     = 0
 
-def _on_tick(delta):
+def _tick_drain(delta):
     """
-    Slate post-tick callback — fires every editor frame until unregistered.
-    Waits for LevelEditor.MainMenu to exist, then:
-      1. Registers the MCP AI menu.
-      2. Opens the startup dialog once.
-      3. Unregisters itself.
+    Permanent slate post-tick callback.
+    A) On startup: wait for menu readiness, register menu, open dialog once.
+    B) Always: drain _main_queue (Blueprint command execution).
     """
-    global _startup_done, _tick_handler, _tick_count
+    global _startup_done, _menu_done, _tick_count
 
+    # ── Drain main queue (Blueprint command execution) ────────────────────────
+    # Do this every tick regardless of startup state.
+    try:
+        while not _main_queue.empty():
+            fn = _main_queue.get_nowait()
+            try:
+                fn()
+            except Exception:
+                _err(f"Main-queue task failed:\n{traceback.format_exc()}")
+    except Exception:
+        pass
+
+    # ── Startup sequence ──────────────────────────────────────────────────────
     if _startup_done:
         return
 
     _tick_count += 1
 
-    # Timeout after ~10 s (600 frames at 60 fps)
-    if _tick_count > 600:
+    # Timeout after ~15 s (900 ticks at 60 fps)
+    if _tick_count > 900:
         _startup_done = True
-        _warn("Startup timed out after 600 ticks.")
+        _warn("Startup timed out after 900 ticks.")
         _log("Open manually: MCP AI menu (if visible) or: import mcp_ui; mcp_ui.show()")
-        try:
-            unreal.unregister_slate_post_tick_callback(_tick_handler)
-        except Exception:
-            pass
         return
 
-    # Register menu once ready
-    menu_ok = _register_menu()
-    if not menu_ok:
-        return  # keep polling
+    # Try to register menu if not done
+    if not _menu_done:
+        _menu_done = _register_menu()
+        if not _menu_done:
+            return  # keep polling
 
-    # Menu registered — unregister tick callback
+    # Menu registered — open the dialog once
     _startup_done = True
-    try:
-        unreal.unregister_slate_post_tick_callback(_tick_handler)
-        _tick_handler = None
-    except Exception:
-        pass
-
-    _log(f"Editor ready at tick {_tick_count}. Opening MCP Blueprint Generator...")
+    _log(f"Editor ready at tick {_tick_count}. Opening MCP Blueprint Generator…")
     try:
         _run_dialog()
     except Exception:
         _warn(f"Auto-open dialog failed:\n{traceback.format_exc()}")
-        _log("Fallback: click MCP AI in the menu bar, or: import mcp_ui; mcp_ui.show()")
+        _log("Fallback: MCP AI menu, or: import mcp_ui; mcp_ui.show()")
 
 
 def _schedule_startup():
-    """Register a slate post-tick callback to set up the menu and open dialog."""
-    global _tick_handler, _startup_done, _tick_count
+    """Register a permanent slate post-tick callback."""
+    global _tick_handler, _startup_done, _menu_done, _tick_count
 
     _startup_done = False
+    _menu_done    = False
     _tick_count   = 0
 
     import unreal as _u
 
     try:
-        _tick_handler = _u.register_slate_post_tick_callback(_on_tick)
-        _log("Slate tick callback registered — menu will appear shortly.")
+        _tick_handler = _u.register_slate_post_tick_callback(_tick_drain)
+        _log("Slate tick callback registered (permanent — serves main-thread queue).")
         return
     except AttributeError:
         _warn("register_slate_post_tick_callback not available — running synchronously.")
     except Exception as e:
         _warn(f"Slate tick registration failed: {e} — running synchronously.")
 
-    # Synchronous fallback
+    # Synchronous fallback (no Slate tick support)
     _register_menu()
     try:
         _run_dialog()
@@ -664,7 +645,7 @@ def _schedule_startup():
 def show():
     """
     Open the MCP Blueprint Generator dialog.
-    Call from the Output Log Python console:
+    Usage (Output Log Python console):
         import mcp_ui; mcp_ui.show()
     """
     if not _IN_UNREAL:
@@ -679,20 +660,17 @@ def show():
 def set_key(key: str):
     """Save your OpenRouter API key.  Usage: mcp_ui.set_key('sk-or-v1-...')"""
     _set("api_key", key.strip())
-    _log(f"API key saved (ends: ...{key.strip()[-8:]})")
+    _log(f"API key saved (ends: …{key.strip()[-8:]})")
 
 
 def set_model(model: str):
-    """
-    Select a model by label or ID.
-    Usage: mcp_ui.set_model('gpt-4o')
-    """
+    """Select a model by label or ID.  Usage: mcp_ui.set_model('gpt-4o')"""
     for label, mid in MODELS:
         if model.lower() in label.lower() or model == mid:
             _set("model", mid)
             _log(f"Model set: {mid}")
             return
-    _warn(f"Unknown model '{model}'. Run mcp_ui.list_models() to see options.")
+    _warn(f"Unknown model '{model}'.  Run mcp_ui.list_models() to see options.")
 
 
 def run(prompt: str, model: str = ""):
@@ -702,7 +680,7 @@ def run(prompt: str, model: str = ""):
     """
     api_key = _get("api_key", "")
     if not api_key:
-        _err("No API key. Run: mcp_ui.set_key('sk-or-v1-...')")
+        _err("No API key.  Run: mcp_ui.set_key('sk-or-v1-...')")
         return
     if model:
         set_model(model)
@@ -722,15 +700,14 @@ def status():
     """Show current API key (masked) and model."""
     key   = _get("api_key", "")
     model = _get("model", DEFAULT_MODEL)
-    _log(f"API key : {'...' + key[-8:] if key else '(not set)'}")
+    _log(f"API key : {'…' + key[-8:] if key else '(not set)'}")
     _log(f"Model   : {model}")
 
 
 def start():
     """Called automatically by init_unreal.py when the plugin loads."""
-    _log("MCP Blueprint Generator v1.4.0 starting...")
+    _log("MCP Blueprint Generator v1.5.0 starting…")
 
-    # Initialize UE Python classes (ToolMenuEntryScript subclass etc.)
     if _IN_UNREAL:
         try:
             _init_ue_classes()
@@ -741,8 +718,8 @@ def start():
     saved_key = _get("api_key", "")
     if saved_key:
         model = _get("model", DEFAULT_MODEL)
-        _log(f"Key: ...{saved_key[-8:]}  |  Model: {model}")
-        _log("Reopen: click  MCP AI  in the menu bar, or: import mcp_ui; mcp_ui.show()")
+        _log(f"Key: …{saved_key[-8:]}  |  Model: {model}")
+        _log("Reopen: MCP AI menu, or: import mcp_ui; mcp_ui.show()")
     else:
         _log("First run — API key dialog will open shortly.")
         _log("Get a FREE key at:  https://openrouter.ai/keys")

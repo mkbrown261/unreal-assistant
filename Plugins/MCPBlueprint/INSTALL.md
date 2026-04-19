@@ -1,106 +1,103 @@
-# MCP Blueprint Generator v1.4.0 — Installation Guide
+# MCP Blueprint Generator — Installation Guide
+## Version 1.5.0 · UE 5.7.4 · macOS (Apple Silicon)
+
+---
 
 ## Requirements
-- Unreal Engine **5.7.4** (tested on UE 5.7.4 / macOS / Apple Silicon)
-- A FREE OpenRouter API key — get one at **https://openrouter.ai/keys**
+- Unreal Engine **5.3 – 5.7.4** (tested on 5.7.4 / macOS / Apple M4)
+- A **free** OpenRouter API key → https://openrouter.ai/keys
 
 ---
 
-## Step 1 — Copy the plugin into your project
+## Install
 
-1. Find your Unreal project folder (where your `.uproject` file is).
-2. Create a `Plugins/` folder inside it if one doesn't already exist.
-3. Copy the entire `MCPBlueprint` folder into `Plugins/`.
+1. **Copy** the entire `MCPBlueprint` folder into your project's `Plugins/` directory:
+   ```
+   YourGame/
+   └── Plugins/
+       └── MCPBlueprint/          ← put this here
+           ├── MCPBlueprint.uplugin
+           └── Content/Python/
+               ├── init_unreal.py
+               ├── mcp_ui.py
+               └── blueprint_executor.py
+   ```
 
-```
-YourGame/
-├── YourGame.uproject
-└── Plugins/
-    └── MCPBlueprint/         ← put it here
-        ├── MCPBlueprint.uplugin
-        ├── INSTALL.md
-        └── Content/Python/
-            ├── init_unreal.py
-            ├── mcp_ui.py
-            ├── blueprint_executor.py
-            └── ai_panel.py
-```
+2. In Unreal Editor: **Edit → Plugins → search "MCP"** → enable → **Restart**.
+
+3. After restart, look for **"MCP AI"** in the Level Editor menu bar.
 
 ---
 
-## Step 2 — Enable the plugin in Unreal
+## First-time Setup
 
-1. Open your project in Unreal Engine.
-2. Go to **Edit → Plugins**, search for **"MCP Blueprint Generator"**, enable it.
-3. Restart the editor when prompted.
-
----
-
-## Step 3 — What to expect after restart
-
-After restarting the editor, wait **3–5 seconds** for the editor to finish loading.
-
-You will see in the **Output Log**:
-```
-[MCPBlueprint] MCP Blueprint Generator v1.4.0 starting...
-[MCPBlueprint] Slate tick callback registered — menu will appear shortly.
-[MCPBlueprint] ✔ 'MCP AI' menu registered in Level Editor menu bar.
-[MCPBlueprint] Editor ready at tick N. Opening MCP Blueprint Generator...
-```
-
-A new **"MCP AI"** menu appears in the **Level Editor menu bar** (between Help and other menus).
-
-A **native modal dialog** also opens automatically on startup. If you have a saved API key, it skips straight to model/prompt selection.
+1. Click **MCP AI → Generate Blueprint with AI…**
+2. A dialog asks for your **OpenRouter API key**:
+   - Go to https://openrouter.ai/keys, create a free key.
+   - Paste it (starts with `sk-or-v1-`).
+3. Select a model (default: Claude Sonnet 4.5, recommended).
+4. Describe your Blueprint in plain English.
+5. Wait ~10-30 s — the Blueprint appears under **`/Game/MCP/`**.
 
 ---
 
-## Step 4 — Using the MCP AI menu
+## What's New in v1.5.0
 
-After the editor loads, you can open the generator any time by clicking:
+### Bug Fixes
+- **ZenLoader / FlushAsyncLoading crash — FIXED**
+  All Unreal asset APIs now run on the **main game thread** via a
+  permanent Slate tick queue (`_main_queue`).  Previously, blueprint
+  commands were dispatched from a background thread using
+  `unreal.call_on_game_thread`, which does **not exist** in UE 5.7.
+  Calling editor APIs from the wrong thread caused:
+  ```
+  RuntimeError: The current loader 'ZenLoader' is unable to
+  FlushAsyncLoading from the current thread
+  ```
+  This is now fixed: the HTTP fetch runs on a daemon thread (so the
+  editor stays responsive), then posts the commands to `_main_queue`,
+  which the Slate tick drains on the game thread every frame.
 
-**MCP AI → Generate Blueprint with AI...**
+- **`/Game/MCP` directory creation — FIXED**
+  `create_blueprint` now explicitly calls
+  `EditorAssetLibrary.make_directory("/Game/MCP")` before every
+  blueprint creation, preventing "package does not exist on disk" errors.
 
-This button works **every time** — not just at startup.
+- **Parent class resolution — IMPROVED**
+  Added `ActorComponent`, `SceneComponent`, `AIController`, `UserWidget`,
+  `GameInstance`, and many more. The AI can now say
+  `"parent_class": "ActorComponent"` and it will work.
 
-The dialog walks you through three steps:
-1. **API key** — paste your OpenRouter key (first time only, saved permanently).
-2. **Model selection** — type a number 1–16 to pick an AI model, or press OK for the default (Claude Sonnet 4.5 ⭐).
-3. **Blueprint description** — describe what you want in plain English, click OK.
-
-Your Blueprint appears in the **Content Browser → `/Game/MCP/`** within seconds.
+### Previous Fixes (v1.4.0 — preserved)
+- Menu click works reliably via `ToolMenuEntryScript.execute()` override.
+- `@unreal.uclass()` classes defined at module level (not inside exec).
+- No `unreal.MCPModelEnum` (removed — doesn't exist in any UE version).
 
 ---
 
-## Step 5 — Reopening the dialog
+## Console Commands
 
-Three ways to open it:
-
-| Method | How |
-|--------|-----|
-| Menu click | **MCP AI → Generate Blueprint with AI...** in the Level Editor |
-| Python console | `import mcp_ui; mcp_ui.show()` |
-| Direct generate | `import mcp_ui; mcp_ui.run("your description here")` |
-
----
-
-## Console commands (power users)
-
-In the **Output Log** Python console (switch to Python mode):
+Open the **Output Log → Python console** and run any of these:
 
 ```python
 import mcp_ui
 
-# Set or change your API key
-mcp_ui.set_key("sk-or-v1-your-key-here")
+# Open the dialog
+mcp_ui.show()
 
-# Generate directly without the dialog
-mcp_ui.run("Create an enemy AI that chases the player")
-mcp_ui.run("Create a door that opens on overlap", model="gpt-4o")
+# Set API key (if dialog didn't work)
+mcp_ui.set_key("sk-or-v1-...")
 
-# List all available models
+# Generate directly without dialog
+mcp_ui.run("Create a door that opens when the player walks near it")
+
+# Change model
+mcp_ui.set_model("gpt-4o")
+
+# List all models
 mcp_ui.list_models()
 
-# Check current settings
+# Check current key and model
 mcp_ui.status()
 ```
 
@@ -108,55 +105,31 @@ mcp_ui.status()
 
 ## Available AI Models
 
-| # | Name | Best For |
-|---|------|----------|
-| 1 | Claude Sonnet 4.5 ⭐ | Best overall (recommended) |
-| 2 | Claude Opus 4.5 | Most capable |
-| 7 | Claude Haiku 4.5 | Fastest / cheapest Claude |
-| 9 | Gemini 2.5 Pro | Google alternative |
-| 10 | Gemini 2.5 Flash | Fast & cheap |
-| 14 | GPT-4o | OpenAI option |
-| 15 | GPT-4o Mini | Most affordable |
-
----
-
-## Example prompts
-
-```python
-mcp_ui.run("Create an enemy AI that chases the player and has 100 health")
-mcp_ui.run("Create a door that opens when the player walks near it")
-mcp_ui.run("Create a health pickup that restores 25 health on overlap")
-mcp_ui.run("Create an enemy that patrols between two points")
-mcp_ui.run("Create a game mode that ends after 60 seconds")
-mcp_ui.run("Create a moving platform that loops back and forth")
-mcp_ui.run("Create a collectible coin that disappears when picked up")
-```
+| # | Label | Model ID |
+|---|-------|----------|
+| 1 | claude-sonnet-4-5 **[RECOMMENDED]** | anthropic/claude-sonnet-4-5 |
+| 2 | claude-opus-4-5 [most capable] | anthropic/claude-opus-4-5 |
+| 7 | claude-haiku-4-5 [fastest] | anthropic/claude-haiku-4-5 |
+| 9 | gemini-2-5-pro | google/gemini-2.5-pro |
+| 13 | deepseek-r1 [reasoning] | deepseek/deepseek-r1 |
+| 14 | gpt-4o | openai/gpt-4o |
+| 15 | gpt-4o-mini [affordable] | openai/gpt-4o-mini |
 
 ---
 
 ## Troubleshooting
 
-**MCP AI menu shows but clicking does nothing**
-→ This was the v1.3.0 bug. v1.4.0 fixes it by using a `ToolMenuEntryScript` subclass
-  with an `execute()` override — the only reliable way to trigger Python from a menu in UE 5.7.
+| Symptom | Fix |
+|---------|-----|
+| `MCP AI` menu not visible | Wait 5-10 s for editor startup, or run `import mcp_ui; mcp_ui.show()` |
+| Blueprint not in Content Browser | Check Output Log for errors; try `mcp_ui.run("same prompt")` again |
+| HTTP 401 error | Regenerate your key at https://openrouter.ai/keys, then `mcp_ui.set_key("sk-or-v1-...")` |
+| All 0 ok / N failed | Restart UE (this resets the Python state) — was the threading bug, fixed in v1.5.0 |
+| `does_directory_exist` error | Plugin auto-creates `/Game/MCP`; if it still fails, create the folder manually in Content Browser |
+| Dialog doesn't appear | Run in Python console: `import mcp_ui; mcp_ui.show()` |
 
-**Dialog doesn't appear on startup**
-→ Wait 5–10 seconds after the editor finishes loading.
-→ If still nothing, click  **MCP AI → Generate Blueprint with AI...**  in the menu bar.
-→ Or run in the Python console:  `import mcp_ui; mcp_ui.show()`
+---
 
-**"Incompatible plugin" warning**
-→ v1.4.0 sets `EngineVersion` to `5.7.0` — this warning should not appear on UE 5.7.4.
-
-**No API key error**
-→ Run: `import mcp_ui; mcp_ui.set_key("sk-or-v1-your-key")`
-
-**HTTP 401 error**
-→ Your key is invalid or expired. Create a new one at https://openrouter.ai/keys
-
-**Blueprint not in Content Browser**
-→ Check the Output Log for Python errors.
-→ The `/Game/MCP/` folder is created automatically on first use.
-
-**Need help?**
-→ https://github.com/mkbrown261/unreal-assistant/issues
+## Support
+- Issues: https://github.com/mkbrown261/unreal-assistant/issues
+- GitHub: https://github.com/mkbrown261/unreal-assistant

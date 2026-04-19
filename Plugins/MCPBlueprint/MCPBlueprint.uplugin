@@ -2,7 +2,7 @@
   "FileVersion": 3,
   "Version": 4,
   "VersionName": "1.3.0",
-  "EngineVersion": "5.3.0",
+  "EngineVersion": "5.7.0",
   "CompatibleEngineVersion": "5.3.0",
   "FriendlyName": "MCP Blueprint Generator",
   "Description": "Generate fully wired, compiled Blueprints from plain-English prompts using AI (via OpenRouter). Type what you want — the plugin builds the Blueprint inside your editor. No external server, no Node.js, no compilation required. Compatible with UE 5.3+.",

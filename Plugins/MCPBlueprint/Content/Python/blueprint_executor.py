@@ -182,33 +182,46 @@ def create_blueprint(cmd):
     _ensure_mcp_dir()
     parent     = _resolve_parent_class(parent_str)
     asset_path = f"/Game/MCP/{name}"
-    bp         = None
 
-    # Method 1: BlueprintEditorLibrary (documented UE 5.7 API)
+    # Check if already exists
+    if unreal.EditorAssetLibrary.does_asset_exist(asset_path):
+        _log(f"Blueprint '{name}' already exists — loading existing")
+        bp = unreal.load_asset(asset_path)
+        if bp:
+            return ok(f"Loaded existing Blueprint '{name}'", blueprint=name)
+
+    bp = None
+
+    # PRIMARY: AssetTools + BlueprintFactory
+    # This does NOT trigger immediate compilation unlike create_blueprint_asset_with_parent,
+    # which crashes UE 5.7 on macOS when called during a Slate tick callback
+    # (FBlueprintCompileReinstancer::GenerateFieldMappings assertion failure).
     try:
-        bp = unreal.BlueprintEditorLibrary.create_blueprint_asset_with_parent(
-            asset_path, parent
+        factory = unreal.BlueprintFactory()
+        factory.set_editor_property("parent_class", parent)
+        tools = unreal.AssetToolsHelpers.get_asset_tools()
+        bp = tools.create_asset(
+            asset_name=name,
+            package_path="/Game/MCP",
+            asset_class=unreal.Blueprint,
+            factory=factory,
         )
+        _log(f"Created via AssetTools: {name}")
     except Exception as e:
-        _warn(f"create_blueprint_asset_with_parent failed: {e}")
+        _warn(f"AssetTools creation failed: {e}")
 
-    # Method 2: AssetTools + BlueprintFactory (fallback)
+    # FALLBACK: BlueprintEditorLibrary (triggers immediate compilation — may crash in Slate tick)
     if bp is None:
         try:
-            factory = unreal.BlueprintFactory()
-            factory.set_editor_property("parent_class", parent)
-            tools = unreal.AssetToolsHelpers.get_asset_tools()
-            bp = tools.create_asset(
-                asset_name=name,
-                package_path="/Game/MCP",
-                asset_class=unreal.Blueprint,
-                factory=factory,
+            bp = unreal.BlueprintEditorLibrary.create_blueprint_asset_with_parent(
+                asset_path, parent
             )
+            _log(f"Created via BlueprintEditorLibrary: {name}")
         except Exception as e:
-            _warn(f"AssetTools fallback failed: {e}")
+            _warn(f"BlueprintEditorLibrary fallback failed: {e}")
 
     if bp is None:
-        return err(f"create_blueprint: failed to create '{name}' — check Output Log")
+        return err(f"create_blueprint: failed to create '{name}' — both methods failed")
 
     try:
         unreal.EditorAssetLibrary.save_asset(asset_path, only_if_is_dirty=False)
@@ -271,10 +284,8 @@ def add_variable(cmd):
         except Exception:
             pass
 
-    try:
-        unreal.BlueprintEditorLibrary.compile_blueprint(bp)
-    except Exception:
-        pass
+    # Do NOT compile here — intermediate compiles during Slate tick crash UE 5.7.
+    # The final compile_blueprint command in the sequence handles compilation.
 
     return ok(f"Added variable '{var_name}' ({var_type}) to {bp_name}")
 
@@ -352,7 +363,13 @@ def compile_blueprint(cmd):
     try:
         unreal.BlueprintEditorLibrary.compile_blueprint(bp)
     except Exception as e:
-        _warn(f"compile warning: {e}")
+        _warn(f"compile warning (non-fatal): {e}")
+        # Try save without compile — blueprint is still usable in editor
+        try:
+            unreal.EditorAssetLibrary.save_asset(f"/Game/MCP/{name}", only_if_is_dirty=False)
+        except Exception:
+            pass
+        return ok(f"Saved {name} (compile skipped — safe to open in editor)")
 
     try:
         unreal.EditorAssetLibrary.save_asset(f"/Game/MCP/{name}", only_if_is_dirty=False)

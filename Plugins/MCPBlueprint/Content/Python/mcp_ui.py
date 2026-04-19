@@ -1,5 +1,5 @@
 """
-mcp_ui.py — MCP Blueprint Generator v1.7.0
+mcp_ui.py — MCP Blueprint Generator v1.7.1
 UE 5.7.4 / macOS / Python 3.11
 
 WHAT'S FIXED IN v1.7.0
@@ -252,48 +252,52 @@ def _show_message(title, body, msg_type=None, default_ret=None, category=None):
 def _show_input(title, message, default_value=""):
     """
     Show a text input dialog. Returns the entered string, or None on cancel.
-    Tries multiple UE 5.7-compatible APIs in order.
+    In UE 5.7, show_text_input_dialog is the only reliable API but doesn't
+    support min size. We use show_object_details_view with a uobject for
+    any input that needs more space (multi-line message).
     """
     import unreal as _u
 
-    # Method 1: show_text_input_dialog (most common in UE 5.x)
-    if hasattr(_u.EditorDialog, "show_text_input_dialog"):
+    # For short single-field inputs: show_text_input_dialog
+    # For multi-line prompts (model selection, blueprint description): use details view
+    use_details = len(message) > 200
+
+    if not use_details and hasattr(_u.EditorDialog, "show_text_input_dialog"):
         try:
             result = _u.EditorDialog.show_text_input_dialog(
                 title=title,
                 message=message,
                 default_value=str(default_value),
             )
-            # Returns None if cancelled
             return result
         except Exception as e:
             _warn(f"show_text_input_dialog failed: {e}")
 
-    # Method 2: show_object_details_view with a simple uobject
-    # Only attempt if we have the class ready
+    # show_object_details_view for larger inputs
     try:
         @_u.uclass()
-        class _TmpInput(_u.Object):
-            val = _u.uproperty(str, meta=dict(DisplayName="Value"))
+        class _InputObj(_u.Object):
+            value = _u.uproperty(str, meta=dict(DisplayName="Your Input", MultiLine=True))
 
-        obj = _u.new_object(_TmpInput)
-        obj.set_editor_property("val", str(default_value))
+        obj = _u.new_object(_InputObj)
+        obj.set_editor_property("value", str(default_value))
 
         opts = _u.EditorDialogLibraryObjectDetailsViewOptions()
         opts.show_object_name = False
         opts.allow_resizing   = True
-        opts.min_width        = 600
-        opts.min_height       = 200
+        opts.min_width        = 900
+        opts.min_height       = 600
 
-        ok_pressed = _u.EditorDialog.show_object_details_view(message, obj, opts)
+        ok_pressed = _u.EditorDialog.show_object_details_view(
+            f"{title}\n\n{message}", obj, opts
+        )
         if ok_pressed:
-            return obj.get_editor_property("val")
+            return obj.get_editor_property("value")
         return None
     except Exception as e:
         _warn(f"show_object_details_view failed: {e}")
 
-    # Method 3: No working dialog — tell user to use console
-    _log(f"No dialog available. Use console: import mcp_ui; mcp_ui.run('your prompt')")
+    _log(f"No dialog available. Use: import mcp_ui; mcp_ui.run('your prompt')")
     return None
 
 
@@ -649,6 +653,29 @@ def _register_menu():
 
         _menu_entry_instance = entry_script
         _log("'MCP AI' menu registered. Click MCP AI → Generate Blueprint with AI...")
+
+        # After menu registration succeeds, also try to add a toolbar button
+        # so the panel is accessible even when the menu bar is crowded
+        try:
+            toolbar = menus.find_menu("LevelEditor.LevelEditorToolBar.PlayToolBar")
+            if not toolbar:
+                toolbar = menus.find_menu("LevelEditor.LevelEditorToolBar.AssetsToolBar")
+            if toolbar:
+                toolbar_entry = _u.new_object(MCPMenuScript)
+                toolbar_entry.init_entry(
+                    "MCPBlueprintPlugin",
+                    toolbar.get_name(),
+                    "MCPToolbarSection",
+                    "MCPToolbarButton",
+                    "🤖 MCP AI",
+                    "Generate Blueprint with AI",
+                )
+                toolbar_entry.register_menu_entry()
+                _u.ToolMenus.get().refresh_all_widgets()
+                _log("MCP AI toolbar button added.")
+        except Exception as e:
+            _warn(f"Toolbar button failed (non-critical): {e}")
+
         return True
 
     except Exception as e:
@@ -802,7 +829,7 @@ def status():
 
 def start():
     """Called automatically by init_unreal.py when the plugin loads."""
-    _log("MCP Blueprint Generator v1.7.0 starting…")
+    _log("MCP Blueprint Generator v1.7.1 starting…")
 
     if _IN_UNREAL:
         try:

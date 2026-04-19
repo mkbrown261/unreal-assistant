@@ -619,55 +619,107 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
 <section id="install" class="alt-bg">
   <div class="container">
     <div class="section-label">Installation</div>
-    <h2 class="section-title">Get Running in 3 Steps</h2>
-    <p class="section-sub">Install the Unreal plugin, run the MCP server, and start generating Blueprints from your AI prompts.</p>
+    <h2 class="section-title">Appears in Unreal's Plugin Browser</h2>
+    <p class="section-sub">Drop the folder in, compile once, enable in the Plugin Browser. That's it — it shows up just like any Epic plugin.</p>
+
+    <!-- How Plugin Discovery Works -->
+    <div style="background:var(--panel);border:1px solid var(--border2);border-radius:14px;padding:28px;margin-top:40px;margin-bottom:32px;">
+      <div style="font-size:13px;font-weight:700;color:var(--purple3);letter-spacing:.06em;text-transform:uppercase;margin-bottom:16px;">How Unreal Finds Plugins</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;">
+        <div style="background:rgba(138,43,226,.08);border:1px solid rgba(138,43,226,.2);border-radius:10px;padding:18px;">
+          <div style="font-size:20px;margin-bottom:8px;">📁</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:4px;">Project-level</div>
+          <div style="font-size:11px;color:var(--text3);line-height:1.6;font-family:'JetBrains Mono',monospace;">YourProject/Plugins/<br/>MCPBlueprint/</div>
+          <div style="font-size:11px;color:var(--green);margin-top:8px;font-weight:600;">✓ Recommended</div>
+        </div>
+        <div style="background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.15);border-radius:10px;padding:18px;">
+          <div style="font-size:20px;margin-bottom:8px;">🌐</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:4px;">Engine-level</div>
+          <div style="font-size:11px;color:var(--text3);line-height:1.6;font-family:'JetBrains Mono',monospace;">UE_5.x/Engine/Plugins/<br/>Developer/MCPBlueprint/</div>
+          <div style="font-size:11px;color:var(--cyan);margin-top:8px;font-weight:600;">Shows in all projects</div>
+        </div>
+        <div style="background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.15);border-radius:10px;padding:18px;">
+          <div style="font-size:20px;margin-bottom:8px;">🏪</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:4px;">Marketplace</div>
+          <div style="font-size:11px;color:var(--text3);line-height:1.6;">One-click install from Epic Games launcher — requires Epic review</div>
+          <div style="font-size:11px;color:var(--orange);margin-top:8px;font-weight:600;">Future goal</div>
+        </div>
+      </div>
+      <div style="margin-top:16px;padding:12px 16px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2);border-radius:8px;font-size:12px;color:var(--text2);line-height:1.6;">
+        <strong style="color:var(--green)">What makes it show up:</strong> The <code>MCPBlueprint.uplugin</code> file is what Unreal reads. It defines the name "MCP Blueprint", category "Developer Tools", description, and version that appear in the Plugin Browser. As long as that file exists inside a <code>Plugins/</code> folder Unreal scans, the plugin shows up.
+      </div>
+    </div>
+
     <div class="steps">
       <div class="step">
         <div class="step-num">1</div>
         <div>
-          <h3>Install the UE5 Plugin</h3>
-          <p>Copy the <code>MCPBlueprint</code> folder into your Unreal project's Plugins directory, then enable it in the Plugin Manager and restart the editor. The plugin auto-starts its HTTP server on port 8080.</p>
-          <div class="code">cp -r MCPBlueprint/  YourProject/Plugins/MCPBlueprint/
-# Inside Unreal Editor:
-# Edit → Plugins → search "MCPBlueprint" → Enable → Restart Editor
-# Check Output Log for: [MCPBlueprint] MCP HTTP server ready → POST http://localhost:8080/unreal/execute</div>
+          <h3>Drop the Plugin Folder into Your Project</h3>
+          <p>Download from GitHub Releases and copy the <code>MCPBlueprint</code> folder into your project's <code>Plugins/</code> directory. Create the folder if it doesn't exist.</p>
+          <div class="code">YourProject/
+└── Plugins/
+    └── MCPBlueprint/          ← paste here
+        ├── MCPBlueprint.uplugin
+        ├── Source/
+        │   └── MCPBlueprint/
+        │       ├── MCPBlueprint.Build.cs
+        │       ├── Private/   (MCPServer.cpp, BlueprintExecutor.cpp)
+        │       └── Public/    (MCPServer.h, BlueprintExecutor.h)
+        └── INSTALL.md</div>
         </div>
       </div>
       <div class="step">
         <div class="step-num">2</div>
         <div>
-          <h3>Start the MCP Node.js Server</h3>
-          <p>The MCP server bridges your AI calls to the Unreal plugin. Clone this repo, install dependencies, set your OpenAI key, and run it.</p>
-          <div class="code">git clone https://github.com/mkbrown261/unreal-assistant
-cd unreal-assistant/mcp-server
-npm install
+          <h3>Compile Once (C++ plugins require this)</h3>
+          <p>Right-click your <code>.uproject</code> file → <strong>"Generate Visual Studio project files"</strong> → open the <code>.sln</code> → build <strong>Development Editor / Win64</strong>. This compiles the plugin DLL. You only do this once per UE version.</p>
+          <div class="code"># Windows — right-click .uproject → Generate VS project files
+# Then in Visual Studio 2022:
+#   Config: Development Editor | Win64
+#   Build → Build Solution (Ctrl+Shift+B)
+#
+# Mac — right-click .uproject → Generate Xcode project
+# Then: Product → Build
 
-# Create .env
-echo "OPENAI_API_KEY=sk-your-key" > .env
-echo "UNREAL_HOST=http://localhost:8080" >> .env
-
-node server.js
-# → MCP Server running on http://localhost:3001
-# → POST /api/blueprint/generate   (AI → Blueprint JSON)
-# → POST /api/blueprint/execute    (send commands to Unreal)</div>
+# After building, Binaries/ folder appears automatically:
+# Plugins/MCPBlueprint/Binaries/Win64/UnrealEditor-MCPBlueprint.dll</div>
         </div>
       </div>
       <div class="step">
         <div class="step-num">3</div>
         <div>
-          <h3>Generate a Blueprint</h3>
-          <p>Call the MCP server with a plain English prompt. It generates Blueprint commands via AI, translates them to Unreal format, and executes them inside your running editor.</p>
-          <div class="code"># Generate + execute in one call (set execute: true to push straight to Unreal)
-curl -X POST http://localhost:3001/api/blueprint/generate \\
-  -H "Content-Type: application/json" \\
-  -d '{"prompt":"Create an enemy AI that chases the player","execute":true}'
+          <h3>Enable in Plugin Browser → Restart</h3>
+          <p>Open Unreal Editor. Go to <strong>Edit → Plugins</strong>, search <strong>"MCP Blueprint"</strong> — it appears under Developer Tools. Click Enable, restart the editor. Done.</p>
+          <div class="code"># Confirm it's running — check Output Log for:
+[MCPBlueprint] MCP HTTP server ready → POST http://localhost:8080/unreal/execute
 
-# Or translate raw MCP JSON to clean Blueprint Manager format:
-curl -X POST https://unreal-assistant.pages.dev/api/translate \\
-  -H "Content-Type: application/json" \\
-  -d '{"commands":[{"action":"create_blueprint","name":"BP_Enemy","parent_class":"Character"},...]}' </div>
+# Quick health check:
+curl http://localhost:8080/unreal/status
+# → {"status":"ok","server":"MCPBlueprint","version":"1.0.0"}</div>
         </div>
       </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div>
+          <h3>Start the MCP Server &amp; Generate Blueprints</h3>
+          <p>Run the Node.js MCP server with your OpenAI key. It connects to the Unreal plugin and generates Blueprints from plain English prompts.</p>
+          <div class="code">cd unreal-assistant/mcp-server
+npm install
+echo "OPENAI_API_KEY=sk-your-key" > .env
+node server.js
+# → http://localhost:3001
+
+# Generate a Blueprint and execute it directly in Unreal:
+curl -X POST http://localhost:3001/api/blueprint/generate \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"Create an enemy AI that chases the player","execute":true}'</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Share compiled version tip -->
+    <div style="margin-top:24px;padding:20px 24px;background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.2);border-radius:12px;font-size:13px;color:var(--text2);line-height:1.7;">
+      <strong style="color:var(--purple3)">💡 Skip compilation for your team:</strong> After building once, zip the entire <code>Plugins/MCPBlueprint/</code> folder (including <code>Binaries/</code>). Anyone on the same UE version + OS can drop it in and enable it — no Visual Studio needed.
     </div>
   </div>
 </section>

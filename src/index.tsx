@@ -711,12 +711,12 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
       <div class="step">
         <div class="step-num">4</div>
         <div>
-          <h3>Enter your OpenAI key — one time only</h3>
-          <p>Click in the Python input box and type this, replacing the key with your real one. Press <strong>Enter</strong>.</p>
-          <div class="code">import ai_panel; ai_panel.set_key("sk-your-key-here")</div>
+          <h3>Enter your OpenRouter API key — one time only</h3>
+          <p>Click in the Python input box and paste this, replacing the key with your real one. Press <strong>Enter</strong>.</p>
+          <div class="code">import ai_panel; ai_panel.set_key("sk-or-v1-your-openrouter-key")</div>
           <p style="margin-top:10px;color:var(--text3);font-size:13px;">The key is saved to your computer. You never need to type this again — even after restarting Unreal.</p>
           <div style="margin-top:12px;background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.2);border-radius:10px;padding:14px 16px;font-size:13px;color:var(--text2);line-height:1.7;">
-            <strong style="color:var(--purple3);">Don't have a key?</strong> Go to <a href="https://platform.openai.com/api-keys" target="_blank" style="color:var(--purple3);font-weight:600;">platform.openai.com/api-keys</a> → sign in → <strong>Create new secret key</strong>. Copy it — it starts with <code>sk-</code>.
+            <strong style="color:var(--purple3);">Get a free OpenRouter key →</strong> <a href="https://openrouter.ai/keys" target="_blank" style="color:var(--purple3);font-weight:600;">openrouter.ai/keys</a> — one key gives you access to Claude, Gemini, DeepSeek, and GPT-4o. Keys start with <code>sk-or-v1-</code>.
           </div>
         </div>
       </div>
@@ -725,35 +725,79 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
       <div class="step">
         <div class="step-num">5</div>
         <div>
-          <h3>Generate a Blueprint by typing a prompt</h3>
-          <p>In the same Python input box, type what you want and press <strong>Enter</strong>:</p>
-          <div class="code">ai_panel.run("Create an enemy that chases the player")</div>
-          <p style="margin-top:12px;">Watch the Output Log. In a few seconds you'll see:</p>
-          <div class="code">[MCPBlueprint] Calling OpenAI...
-[MCPBlueprint] AI returned 6 commands for BP_Enemy
-[MCPBlueprint] SUCCESS: BP_Enemy created
-[MCPBlueprint] Find it in Content Browser → /Game/MCP/BP_Enemy</div>
-          <p style="margin-top:12px;color:var(--green);font-size:13px;font-weight:600;">✓ Open your Content Browser and look in the MCP folder. The Blueprint is there, fully wired and compiled.</p>
+          <h3>Pick a model (optional) and generate</h3>
+          <p>The default model is <strong>Claude Sonnet 4.5</strong>. To switch, use <code>set_model()</code> — then just <code>run()</code> your prompt:</p>
 
-          <p style="margin-top:16px;font-weight:600;font-size:13px;">More prompts to try:</p>
-          <div class="code">ai_panel.run("Create a door that opens when the player walks near it")
+          <!-- Model picker grid -->
+          <div style="margin:14px 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;">
+
+            <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;">
+              <div style="font-size:11px;font-weight:700;color:var(--purple3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">Claude (Anthropic)</div>
+              <div class="code" style="font-size:11px;line-height:2;">ai_panel.set_model("claude-sonnet-4.5")    # recommended
+ai_panel.set_model("claude-opus-4.5")      # most capable
+ai_panel.set_model("claude-3.7-sonnet")
+ai_panel.set_model("claude-3.7-sonnet-think") # with reasoning
+ai_panel.set_model("claude-haiku-4.5")     # fastest</div>
+            </div>
+
+            <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;">
+              <div style="font-size:11px;font-weight:700;color:var(--cyan);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">Gemini (Google)</div>
+              <div class="code" style="font-size:11px;line-height:2;">ai_panel.set_model("gemini-2.5-pro")       # best overall
+ai_panel.set_model("gemini-2.5-flash")     # fast + smart
+ai_panel.set_model("gemini-3.1-pro")       # latest
+ai_panel.set_model("gemini-3-flash")
+ai_panel.set_model("gemini-2.0-flash")     # lightweight</div>
+            </div>
+
+            <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;">
+              <div style="font-size:11px;font-weight:700;color:var(--green);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">DeepSeek</div>
+              <div class="code" style="font-size:11px;line-height:2;">ai_panel.set_model("deepseek-v3.2")        # best coder
+ai_panel.set_model("deepseek-v3.2-speciale")
+ai_panel.set_model("deepseek-r1")          # with reasoning
+ai_panel.set_model("deepseek-r1-0528")     # latest R1
+ai_panel.set_model("deepseek-r1-chimera")  # R1T2 hybrid</div>
+            </div>
+
+            <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;">
+              <div style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">GPT-4o (OpenAI)</div>
+              <div class="code" style="font-size:11px;line-height:2;">ai_panel.set_model("gpt-4o")
+ai_panel.set_model("gpt-4o-mini")          # cheapest</div>
+              <div style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.08em;text-transform:uppercase;margin:12px 0 8px;">Utilities</div>
+              <div class="code" style="font-size:11px;line-height:2;">ai_panel.list_models()   # print all models
+ai_panel.status()        # show current settings</div>
+            </div>
+
+          </div>
+
+          <p style="margin-top:4px;font-weight:600;font-size:13px;">Then generate:</p>
+          <div class="code">ai_panel.run("Create an enemy that chases the player")
+ai_panel.run("Create a door that opens when the player walks near it")
 ai_panel.run("Create a health pickup that gives 25 health on overlap")
 ai_panel.run("Create a turret that rotates toward the player every tick")
 ai_panel.run("Create a timer that ends the game after 60 seconds")</div>
-          <p style="margin-top:10px;color:var(--text3);font-size:13px;">From now on, <code>ai_panel.run("...")</code> is all you ever need to type.</p>
+          <p style="margin-top:12px;">Watch the Output Log:</p>
+          <div class="code">[MCPBlueprint] Prompt: "Create an enemy that chases the player"
+[MCPBlueprint] Model:  anthropic/claude-sonnet-4.5
+[MCPBlueprint] Calling OpenRouter...
+[MCPBlueprint] AI returned 7 commands → BP_Enemy
+[MCPBlueprint] SUCCESS — BP_Enemy created (7/7 commands)
+[MCPBlueprint] Find it in Content Browser → /Game/MCP/BP_Enemy</div>
+          <p style="margin-top:12px;color:var(--green);font-size:13px;font-weight:600;">✓ Open Content Browser → MCP folder. Blueprint is there, fully wired and compiled.</p>
+          <p style="margin-top:6px;color:var(--text3);font-size:12px;">You can also pass model inline: <code>ai_panel.run("prompt", model="gemini-2.5-pro")</code></p>
         </div>
       </div>
 
     </div>
 
-    <!-- get your key callout -->
+    <!-- OpenRouter key callout -->
     <div style="margin-top:36px;background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.2);border-radius:14px;padding:24px 28px;display:flex;align-items:flex-start;gap:16px;">
       <div style="font-size:28px;line-height:1;">🔑</div>
       <div>
-        <div style="font-size:14px;font-weight:700;color:var(--purple3);margin-bottom:6px;">Get your free OpenAI API key</div>
+        <div style="font-size:14px;font-weight:700;color:var(--purple3);margin-bottom:6px;">Get your OpenRouter API key</div>
         <p style="font-size:13px;color:var(--text2);line-height:1.7;margin:0;">
-          Go to <a href="https://platform.openai.com/api-keys" target="_blank" style="color:var(--purple3);font-weight:600;">platform.openai.com/api-keys</a> → sign in → click <strong>Create new secret key</strong>.
-          Copy it. It starts with <code>sk-</code>. You only enter it once inside Unreal.
+          Go to <a href="https://openrouter.ai/keys" target="_blank" style="color:var(--purple3);font-weight:600;">openrouter.ai/keys</a> → sign in → click <strong>Create Key</strong>.
+          One key gives you access to <strong>Claude, Gemini, DeepSeek, GPT-4o</strong> and 300+ other models.
+          Keys start with <code>sk-or-v1-</code>.
         </p>
       </div>
     </div>

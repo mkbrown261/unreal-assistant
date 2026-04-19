@@ -573,37 +573,37 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
   <div class="container">
     <div class="section-label">Plugin Capabilities</div>
     <h2 class="section-title">What the Plugin Does</h2>
-    <p class="section-sub">A full C++ Unreal Editor plugin that handles every step of Blueprint creation via JSON commands.</p>
+    <p class="section-sub">A Python-based Unreal Editor plugin — no compilation needed. Handles every step of Blueprint creation via JSON commands from the MCP server.</p>
     <div class="feat-grid">
       <div class="feat">
         <div class="feat-icon">🌐</div>
         <h3>HTTP Server Inside Unreal</h3>
-        <p>Plugin starts an HTTP listener on port 8080 at editor startup. Any client can POST Blueprint commands directly — no Unreal SDK needed on the caller side.</p>
-        <div class="tags"><span class="tag">HttpServerModule</span><span class="tag">:8080</span><span class="tag">Editor Plugin</span></div>
+        <p>Plugin starts a Python <code>http.server</code> on port 8080 in a background thread at editor startup. No compilation, no DLLs — pure Python using Unreal's built-in interpreter.</p>
+        <div class="tags"><span class="tag">Python http.server</span><span class="tag">:8080</span><span class="tag">No compilation</span></div>
       </div>
       <div class="feat">
         <div class="feat-icon">📋</div>
         <h3>Blueprint Creation</h3>
         <p>Creates UBlueprint assets under <code>/Game/MCP/</code>, sets parent class (Actor, Character, Pawn, etc.), and registers them in the Asset Registry instantly.</p>
-        <div class="tags"><span class="tag">FKismetEditorUtilities</span><span class="tag">UBlueprint</span><span class="tag">UPackage</span></div>
+        <div class="tags"><span class="tag">asset_tools.create_asset</span><span class="tag">BlueprintEditorLibrary</span><span class="tag">/Game/MCP/</span></div>
       </div>
       <div class="feat">
         <div class="feat-icon">🔗</div>
         <h3>Node Graph Editing</h3>
         <p>Adds nodes to EventGraph by Unreal name (Event BeginPlay, Branch, Print String, AI Move To, Timeline…), positions them on the graph, and allocates default pins.</p>
-        <div class="tags"><span class="tag">UK2Node_Event</span><span class="tag">UK2Node_IfThenElse</span><span class="tag">UK2Node_CallFunction</span></div>
+        <div class="tags"><span class="tag">add_function_call_node</span><span class="tag">add_timeline_node</span><span class="tag">add_cast_node</span></div>
       </div>
       <div class="feat">
         <div class="feat-icon">📦</div>
         <h3>Variable Management</h3>
         <p>Adds typed member variables (Boolean, Float, Int, String, Vector, Rotator) and sets default values on the CDO via FBlueprintEditorUtils.</p>
-        <div class="tags"><span class="tag">FEdGraphPinType</span><span class="tag">CDO</span><span class="tag">AddMemberVariable</span></div>
+        <div class="tags"><span class="tag">add_member_variable</span><span class="tag">Boolean·Float·Vector</span><span class="tag">set_default_value</span></div>
       </div>
       <div class="feat">
         <div class="feat-icon">⚡</div>
         <h3>Auto Compile</h3>
-        <p>Calls FKismetEditorUtilities::CompileBlueprint after all commands run. Reports compile status (UpToDate / Error) back in the JSON response.</p>
-        <div class="tags"><span class="tag">CompileBlueprint</span><span class="tag">BS_UpToDate</span><span class="tag">BS_Error</span></div>
+        <p>Calls <code>unreal.BlueprintEditorLibrary.compile_blueprint()</code> after every command. Saves the asset automatically. Errors returned in the JSON response.</p>
+        <div class="tags"><span class="tag">compile_blueprint()</span><span class="tag">save_asset()</span><span class="tag">Error feedback</span></div>
       </div>
       <div class="feat">
         <div class="feat-icon">🔄</div>
@@ -619,107 +619,95 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
 <section id="install" class="alt-bg">
   <div class="container">
     <div class="section-label">Installation</div>
-    <h2 class="section-title">Appears in Unreal's Plugin Browser</h2>
-    <p class="section-sub">Drop the folder in, compile once, enable in the Plugin Browser. That's it — it shows up just like any Epic plugin.</p>
+    <h2 class="section-title">No Compilation Required</h2>
+    <p class="section-sub">Pure Python plugin. Drop the folder in, enable it in the Plugin Browser, done. No Visual Studio. No build tools. Works on Windows, Mac, and Linux.</p>
 
-    <!-- How Plugin Discovery Works -->
-    <div style="background:var(--panel);border:1px solid var(--border2);border-radius:14px;padding:28px;margin-top:40px;margin-bottom:32px;">
-      <div style="font-size:13px;font-weight:700;color:var(--purple3);letter-spacing:.06em;text-transform:uppercase;margin-bottom:16px;">How Unreal Finds Plugins</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;">
-        <div style="background:rgba(138,43,226,.08);border:1px solid rgba(138,43,226,.2);border-radius:10px;padding:18px;">
-          <div style="font-size:20px;margin-bottom:8px;">📁</div>
-          <div style="font-size:13px;font-weight:700;margin-bottom:4px;">Project-level</div>
-          <div style="font-size:11px;color:var(--text3);line-height:1.6;font-family:'JetBrains Mono',monospace;">YourProject/Plugins/<br/>MCPBlueprint/</div>
-          <div style="font-size:11px;color:var(--green);margin-top:8px;font-weight:600;">✓ Recommended</div>
-        </div>
-        <div style="background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.15);border-radius:10px;padding:18px;">
-          <div style="font-size:20px;margin-bottom:8px;">🌐</div>
-          <div style="font-size:13px;font-weight:700;margin-bottom:4px;">Engine-level</div>
-          <div style="font-size:11px;color:var(--text3);line-height:1.6;font-family:'JetBrains Mono',monospace;">UE_5.x/Engine/Plugins/<br/>Developer/MCPBlueprint/</div>
-          <div style="font-size:11px;color:var(--cyan);margin-top:8px;font-weight:600;">Shows in all projects</div>
-        </div>
-        <div style="background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.15);border-radius:10px;padding:18px;">
-          <div style="font-size:20px;margin-bottom:8px;">🏪</div>
-          <div style="font-size:13px;font-weight:700;margin-bottom:4px;">Marketplace</div>
-          <div style="font-size:11px;color:var(--text3);line-height:1.6;">One-click install from Epic Games launcher — requires Epic review</div>
-          <div style="font-size:11px;color:var(--orange);margin-top:8px;font-weight:600;">Future goal</div>
-        </div>
-      </div>
-      <div style="margin-top:16px;padding:12px 16px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2);border-radius:8px;font-size:12px;color:var(--text2);line-height:1.6;">
-        <strong style="color:var(--green)">What makes it show up:</strong> The <code>MCPBlueprint.uplugin</code> file is what Unreal reads. It defines the name "MCP Blueprint", category "Developer Tools", description, and version that appear in the Plugin Browser. As long as that file exists inside a <code>Plugins/</code> folder Unreal scans, the plugin shows up.
-      </div>
+    <!-- Zero compile badge -->
+    <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:32px;margin-bottom:36px;">
+      <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);font-size:13px;font-weight:700;color:var(--green);">✓ No Visual Studio required</div>
+      <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);font-size:13px;font-weight:700;color:var(--green);">✓ No compilation step</div>
+      <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);font-size:13px;font-weight:700;color:var(--green);">✓ Works on Windows · Mac · Linux</div>
+      <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);font-size:13px;font-weight:700;color:var(--green);">✓ Unreal Engine 5.0+</div>
     </div>
 
     <div class="steps">
       <div class="step">
         <div class="step-num">1</div>
         <div>
-          <h3>Drop the Plugin Folder into Your Project</h3>
-          <p>Download from GitHub Releases and copy the <code>MCPBlueprint</code> folder into your project's <code>Plugins/</code> directory. Create the folder if it doesn't exist.</p>
+          <h3>Drop the Folder into Your Project's Plugins Directory</h3>
+          <p>Download the zip from GitHub, extract it, and copy the <code>MCPBlueprint</code> folder into your project. Create a <code>Plugins/</code> folder if one doesn't exist yet.</p>
           <div class="code">YourProject/
 └── Plugins/
-    └── MCPBlueprint/          ← paste here
-        ├── MCPBlueprint.uplugin
-        ├── Source/
-        │   └── MCPBlueprint/
-        │       ├── MCPBlueprint.Build.cs
-        │       ├── Private/   (MCPServer.cpp, BlueprintExecutor.cpp)
-        │       └── Public/    (MCPServer.h, BlueprintExecutor.h)
-        └── INSTALL.md</div>
+    └── MCPBlueprint/              ← drop here
+        ├── MCPBlueprint.uplugin   ← Unreal reads this to show it in Plugin Browser
+        └── Content/
+            └── Python/
+                ├── init_unreal.py      ← auto-runs on plugin enable
+                ├── mcp_server.py       ← HTTP server on :8080
+                └── blueprint_executor.py  ← creates/connects/compiles Blueprints</div>
         </div>
       </div>
+
       <div class="step">
         <div class="step-num">2</div>
         <div>
-          <h3>Compile Once (C++ plugins require this)</h3>
-          <p>Right-click your <code>.uproject</code> file → <strong>"Generate Visual Studio project files"</strong> → open the <code>.sln</code> → build <strong>Development Editor / Win64</strong>. This compiles the plugin DLL. You only do this once per UE version.</p>
-          <div class="code"># Windows — right-click .uproject → Generate VS project files
-# Then in Visual Studio 2022:
-#   Config: Development Editor | Win64
-#   Build → Build Solution (Ctrl+Shift+B)
-#
-# Mac — right-click .uproject → Generate Xcode project
-# Then: Product → Build
+          <h3>Enable in Plugin Browser → Restart Editor</h3>
+          <p>Open Unreal Editor → <strong>Edit → Plugins</strong> → search <strong>"MCP Blueprint"</strong> → it appears under <strong>Developer Tools</strong> → click <strong>Enable</strong> → restart. The HTTP server starts automatically on port 8080.</p>
+          <div class="code"># After restarting, check the Output Log for:
+[MCPBlueprint] MCP HTTP server ready → POST http://localhost:8080/unreal/execute
+[MCPBlueprint] Health check         → GET  http://localhost:8080/unreal/status
 
-# After building, Binaries/ folder appears automatically:
-# Plugins/MCPBlueprint/Binaries/Win64/UnrealEditor-MCPBlueprint.dll</div>
+# Verify it's running:
+curl http://localhost:8080/unreal/status
+# → {"status":"ok","server":"MCPBlueprint","version":"1.0.0","mode":"Python Plugin"}</div>
         </div>
       </div>
+
       <div class="step">
         <div class="step-num">3</div>
         <div>
-          <h3>Enable in Plugin Browser → Restart</h3>
-          <p>Open Unreal Editor. Go to <strong>Edit → Plugins</strong>, search <strong>"MCP Blueprint"</strong> — it appears under Developer Tools. Click Enable, restart the editor. Done.</p>
-          <div class="code"># Confirm it's running — check Output Log for:
-[MCPBlueprint] MCP HTTP server ready → POST http://localhost:8080/unreal/execute
-
-# Quick health check:
-curl http://localhost:8080/unreal/status
-# → {"status":"ok","server":"MCPBlueprint","version":"1.0.0"}</div>
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">4</div>
-        <div>
-          <h3>Start the MCP Server &amp; Generate Blueprints</h3>
-          <p>Run the Node.js MCP server with your OpenAI key. It connects to the Unreal plugin and generates Blueprints from plain English prompts.</p>
+          <h3>Run the MCP Server and Generate Blueprints</h3>
+          <p>Start the Node.js MCP server with your OpenAI key. Send a plain English prompt — it calls the AI, translates the result to Blueprint commands, and POSTs them directly to Unreal.</p>
           <div class="code">cd unreal-assistant/mcp-server
 npm install
 echo "OPENAI_API_KEY=sk-your-key" > .env
 node server.js
-# → http://localhost:3001
+# → MCP Server running on http://localhost:3001
 
-# Generate a Blueprint and execute it directly in Unreal:
+# Generate + execute a Blueprint in Unreal in one call:
 curl -X POST http://localhost:3001/api/blueprint/generate \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"Create an enemy AI that chases the player","execute":true}'</div>
+  -d '{"prompt":"Create an enemy AI that chases the player","execute":true}'
+# → Blueprint appears in /Game/MCP/BP_EnemyAI — compiled and ready</div>
         </div>
       </div>
     </div>
 
-    <!-- Share compiled version tip -->
-    <div style="margin-top:24px;padding:20px 24px;background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.2);border-radius:12px;font-size:13px;color:var(--text2);line-height:1.7;">
-      <strong style="color:var(--purple3)">💡 Skip compilation for your team:</strong> After building once, zip the entire <code>Plugins/MCPBlueprint/</code> folder (including <code>Binaries/</code>). Anyone on the same UE version + OS can drop it in and enable it — no Visual Studio needed.
+    <!-- How it works under the hood -->
+    <div style="margin-top:28px;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:28px;">
+      <div style="font-size:13px;font-weight:700;color:var(--purple3);letter-spacing:.06em;text-transform:uppercase;margin-bottom:16px;">How the Python plugin works</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;">
+        <div style="background:rgba(138,43,226,.06);border:1px solid rgba(138,43,226,.15);border-radius:10px;padding:16px;">
+          <div style="font-size:18px;margin-bottom:8px;">📄</div>
+          <div style="font-size:12px;font-weight:700;margin-bottom:4px;">init_unreal.py</div>
+          <div style="font-size:11px;color:var(--text3);line-height:1.6;">Unreal auto-executes this file on plugin enable. It calls <code>mcp_server.start()</code>.</div>
+        </div>
+        <div style="background:rgba(138,43,226,.06);border:1px solid rgba(138,43,226,.15);border-radius:10px;padding:16px;">
+          <div style="font-size:18px;margin-bottom:8px;">🌐</div>
+          <div style="font-size:12px;font-weight:700;margin-bottom:4px;">mcp_server.py</div>
+          <div style="font-size:11px;color:var(--text3);line-height:1.6;">Runs <code>http.server</code> in a background thread on port 8080. Editor stays fully responsive.</div>
+        </div>
+        <div style="background:rgba(138,43,226,.06);border:1px solid rgba(138,43,226,.15);border-radius:10px;padding:16px;">
+          <div style="font-size:18px;margin-bottom:8px;">⚡</div>
+          <div style="font-size:12px;font-weight:700;margin-bottom:4px;">blueprint_executor.py</div>
+          <div style="font-size:11px;color:var(--text3);line-height:1.6;">Calls <code>unreal.BlueprintEditorLibrary</code> to create assets, add nodes, connect pins, and compile.</div>
+        </div>
+        <div style="background:rgba(138,43,226,.06);border:1px solid rgba(138,43,226,.15);border-radius:10px;padding:16px;">
+          <div style="font-size:18px;margin-bottom:8px;">🔒</div>
+          <div style="font-size:12px;font-weight:700;margin-bottom:4px;">Game thread safety</div>
+          <div style="font-size:11px;color:var(--text3);line-height:1.6;">Blueprint API calls are dispatched to the game thread via <code>unreal.call_on_game_thread()</code>.</div>
+        </div>
+      </div>
     </div>
   </div>
 </section>

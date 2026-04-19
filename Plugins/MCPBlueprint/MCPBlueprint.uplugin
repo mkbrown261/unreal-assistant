@@ -3,28 +3,24 @@
   "Version": 1,
   "VersionName": "1.0.0",
   "FriendlyName": "MCP Blueprint",
-  "Description": "AI-powered Blueprint generation via MCP. Runs an HTTP server inside Unreal Engine on port 8080 that receives structured JSON commands and creates, wires, and compiles Blueprints automatically — no manual editing required.",
+  "Description": "AI-powered Blueprint generation via MCP. Starts an HTTP server inside Unreal Engine on port 8080 that receives structured JSON commands and creates, wires, and compiles Blueprints automatically. No compilation required — pure Python plugin.",
   "Category": "Developer Tools",
   "CreatedBy": "Unreal Assistant",
   "CreatedByURL": "https://unreal-assistant.pages.dev",
   "DocsURL": "https://github.com/mkbrown261/unreal-assistant",
   "MarketplaceURL": "",
   "SupportURL": "https://github.com/mkbrown261/unreal-assistant/issues",
-  "EngineVersion": "5.1.0",
-  "CanContainContent": false,
+  "EngineVersion": "5.0.0",
+  "CanContainContent": true,
   "IsBetaVersion": false,
   "IsExperimentalVersion": false,
   "Installed": true,
   "EnabledByDefault": false,
-  "Modules": [
+  "Modules": [],
+  "Plugins": [
     {
-      "Name": "MCPBlueprint",
-      "Type": "Editor",
-      "LoadingPhase": "PostEngineInit",
-      "AdditionalDependencies": [
-        "Engine",
-        "Kismet"
-      ]
+      "Name": "PythonScriptPlugin",
+      "Enabled": true
     }
   ]
 }

@@ -1,19 +1,29 @@
 """
-blueprint_executor.py — MCP Blueprint Generator v1.5.0
+blueprint_executor.py — MCP Blueprint Generator v1.6.0
 Executes MCP Blueprint commands inside Unreal Engine 5.7+
 
-KEY CHANGES IN 1.5.0
+KEY CHANGES IN v1.6.0
 ─────────────────────
-• _ensure_mcp_dir()   — creates /Game/MCP if it doesn't exist.
-• create_blueprint()  — extended parent-class map; handles
-  ActorComponent, SceneComponent, UActorComponent, etc.
-  Falls back to EditorAssetLibrary.make_directory + retry
-  when the package path is missing.
-• All functions assume they run on the MAIN GAME THREAD
-  (dispatched by mcp_ui._tick_drain via _main_queue).
-  Never call these from a background thread.
-• No unreal.BlueprintVariableType — uses string-based pin
-  categories (unchanged from 1.4.0).
+• ACTOR COMPONENT GRAPH FIX: ActorComponent/SceneComponent blueprints do
+  NOT have an "EventGraph".  They have function override graphs named after
+  the event functions (e.g. "ReceiveBeginPlay", "ReceiveTick").
+  _get_working_graph() now detects the parent class and picks the correct
+  graph:
+    - Actor/Character/Pawn/GameMode variants → "EventGraph"
+    - ActorComponent/SceneComponent variants → "ReceiveBeginPlay" (or
+      whichever event graph is requested), created via
+      BlueprintEditorLibrary.add_function_override if not already present.
+
+• All functions run on the MAIN GAME THREAD (dispatched by mcp_ui via
+  _main_queue).  Never call from a background thread.
+
+• Config path fix (in mcp_ui.py, not here) — stable ~/.mcp_blueprint_config.json.
+
+UNCHANGED FROM v1.5.0
+─────────────────────
+• _ensure_mcp_dir() creates /Game/MCP before every batch.
+• _resolve_parent_class() handles ActorComponent, SceneComponent, etc.
+• String-based pin categories (no BlueprintVariableType enum).
 """
 
 import traceback
@@ -40,11 +50,7 @@ def err(msg):
 
 
 def _ensure_mcp_dir():
-    """
-    Create /Game/MCP if it does not already exist.
-    EditorAssetLibrary.make_directory is safe to call even when the
-    directory already exists (it returns True in both cases).
-    """
+    """Create /Game/MCP if missing."""
     try:
         if not unreal.EditorAssetLibrary.does_directory_exist("/Game/MCP"):
             unreal.EditorAssetLibrary.make_directory("/Game/MCP")
@@ -54,14 +60,10 @@ def _ensure_mcp_dir():
 
 
 def _load_bp(name):
-    """
-    Load a Blueprint asset from /Game/MCP/<name>.
-    Raises ValueError if not found.
-    """
+    """Load Blueprint from /Game/MCP/<name>. Raises ValueError if missing."""
     path = f"/Game/MCP/{name}.{name}"
     bp = unreal.load_asset(path)
     if bp is None:
-        # EditorAssetLibrary approach as fallback
         try:
             bp = unreal.EditorAssetLibrary.load_asset(path)
         except Exception:
@@ -71,27 +73,10 @@ def _load_bp(name):
     return bp
 
 
-def _event_graph(bp):
-    """Return the EventGraph for a Blueprint, or None."""
-    try:
-        for g in unreal.BlueprintEditorLibrary.get_graphs(bp):
-            if g.get_name() == "EventGraph":
-                return g
-    except Exception:
-        pass
-    return None
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Parent class resolution
-#
-# AI often says "ActorComponent", "SceneComponent", "Character", etc.
-# We try several paths to find the UClass.
 # ─────────────────────────────────────────────────────────────────────────────
-
-# Known classes that live in non-obvious modules
 _PARENT_CLASS_MAP = {
-    # Common names → full Unreal path
     "Actor":               "/Script/Engine.Actor",
     "Character":           "/Script/Engine.Character",
     "Pawn":                "/Script/Engine.Pawn",
@@ -115,36 +100,27 @@ _PARENT_CLASS_MAP = {
     "DefaultPawn":         "/Script/Engine.DefaultPawn",
 }
 
+# Parent classes that are component types (have no EventGraph)
+_COMPONENT_PARENTS = {
+    "ActorComponent", "UActorComponent",
+    "SceneComponent", "USceneComponent",
+}
+
+
 def _resolve_parent_class(parent_str):
-    """
-    Resolve a parent class name string to an unreal.Class.
-    Falls back to Actor on failure.
-    """
     if not parent_str:
         return unreal.Actor.static_class()
 
-    # Direct lookup in our map
     if parent_str in _PARENT_CLASS_MAP:
         cls = unreal.load_class(None, _PARENT_CLASS_MAP[parent_str])
         if cls:
             return cls
 
-    # Try /Script/Engine.<name>
-    cls = unreal.load_class(None, f"/Script/Engine.{parent_str}")
-    if cls:
-        return cls
+    for module in ("Engine", "AIModule", "UMG"):
+        cls = unreal.load_class(None, f"/Script/{module}.{parent_str}")
+        if cls:
+            return cls
 
-    # Try /Script/AIModule.<name>
-    cls = unreal.load_class(None, f"/Script/AIModule.{parent_str}")
-    if cls:
-        return cls
-
-    # Try /Script/UMG.<name>
-    cls = unreal.load_class(None, f"/Script/UMG.{parent_str}")
-    if cls:
-        return cls
-
-    # Try stripping leading 'U' or 'A' (Unreal C++ convention)
     stripped = parent_str.lstrip("UA")
     if stripped != parent_str:
         cls = unreal.load_class(None, f"/Script/Engine.{stripped}")
@@ -155,9 +131,137 @@ def _resolve_parent_class(parent_str):
     return unreal.Actor.static_class()
 
 
+def _is_component_bp(bp):
+    """Return True if this Blueprint's parent is an ActorComponent/SceneComponent."""
+    try:
+        parent_class = bp.get_editor_property("parent_class")
+        if parent_class is None:
+            return False
+        name = parent_class.get_name()
+        # Check against known component base names
+        component_bases = {"ActorComponent", "SceneComponent"}
+        # Walk up the class hierarchy
+        cls = parent_class
+        for _ in range(10):
+            if cls is None:
+                break
+            n = cls.get_name()
+            if n in component_bases:
+                return True
+            try:
+                cls = cls.get_super_class()
+            except Exception:
+                break
+    except Exception:
+        pass
+    return False
+
+
 # ─────────────────────────────────────────────────────────────────────────────
-# Variable type → (pin_category, pin_sub_category) strings
-# UE 5.7 uses string-based pin categories, NOT BlueprintVariableType enum
+# Graph resolution
+#
+# Actor/Character/Pawn → "EventGraph"
+# ActorComponent/SceneComponent → function override graphs:
+#   "ReceiveBeginPlay", "ReceiveTick", "ReceiveEndPlay", etc.
+#
+# For components, we use BlueprintEditorLibrary.add_function_override
+# to create the override graph if it doesn't exist, then return it.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Maps the user-facing event name → function name used in component override
+_COMPONENT_EVENT_FUNC_MAP = {
+    "Event BeginPlay":              "ReceiveBeginPlay",
+    "Event Tick":                   "ReceiveTick",
+    "Event EndPlay":                "ReceiveEndPlay",
+    "Event ComponentBeginOverlap":  "ReceiveBeginPlay",
+    "Event InitializeComponent":    "ReceiveBeginPlay",
+}
+
+
+def _get_graphs(bp):
+    """Return all graphs in a Blueprint."""
+    try:
+        return unreal.BlueprintEditorLibrary.get_graphs(bp) or []
+    except Exception:
+        return []
+
+
+def _find_graph_by_name(bp, name):
+    """Find a graph by name (case-insensitive)."""
+    for g in _get_graphs(bp):
+        if g.get_name().lower() == name.lower():
+            return g
+    return None
+
+
+def _get_event_graph(bp):
+    """
+    Return the EventGraph for Actor-based blueprints.
+    Returns None if not found (e.g. it's a component BP).
+    """
+    return _find_graph_by_name(bp, "EventGraph")
+
+
+def _get_component_override_graph(bp, event_name):
+    """
+    For ActorComponent/SceneComponent blueprints:
+    get or create the function override graph for the given event_name.
+
+    event_name is the user-facing name like "Event BeginPlay".
+    Returns the graph, or None on failure.
+    """
+    func_name = _COMPONENT_EVENT_FUNC_MAP.get(event_name, "ReceiveBeginPlay")
+
+    # Check if the override graph already exists
+    existing = _find_graph_by_name(bp, func_name)
+    if existing:
+        return existing
+
+    # Create it via add_function_override
+    try:
+        unreal.BlueprintEditorLibrary.add_function_override(bp, func_name)
+        # Now find it again
+        return _find_graph_by_name(bp, func_name)
+    except Exception as e:
+        unreal.log_warning(f"[MCPBlueprint] add_function_override({func_name}) failed: {e}")
+
+    # Last resort: return the first available graph
+    graphs = _get_graphs(bp)
+    if graphs:
+        unreal.log_warning(f"[MCPBlueprint] Using first available graph: {graphs[0].get_name()}")
+        return graphs[0]
+
+    return None
+
+
+def _get_working_graph(bp, node_type=""):
+    """
+    Return the correct working graph for adding nodes to this Blueprint.
+
+    For Actor-based BPs: EventGraph.
+    For Component BPs: the appropriate function override graph.
+    """
+    is_comp = _is_component_bp(bp)
+
+    if not is_comp:
+        graph = _get_event_graph(bp)
+        if graph:
+            return graph
+        # Some blueprints may not have EventGraph yet — try any graph
+        graphs = _get_graphs(bp)
+        for g in graphs:
+            if "event" in g.get_name().lower():
+                return g
+        if graphs:
+            return graphs[0]
+        return None
+    else:
+        # Component blueprint
+        return _get_component_override_graph(bp, node_type)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Variable types
 # ─────────────────────────────────────────────────────────────────────────────
 VAR_TYPES = {
     "Boolean":   ("bool",   ""),
@@ -176,7 +280,6 @@ VAR_TYPES = {
     "Color":     ("struct", "/Script/CoreUObject.LinearColor"),
 }
 
-# Event node name → Unreal event function name
 EVENT_MAP = {
     "Event BeginPlay":              "ReceiveBeginPlay",
     "Event Tick":                   "ReceiveTick",
@@ -185,14 +288,10 @@ EVENT_MAP = {
     "Event Hit":                    "ReceiveHit",
     "Event Destroyed":              "ReceiveDestroyed",
     "Event AnyDamage":              "ReceiveAnyDamage",
-    # ActorComponent variants
-    "Event ComponentBeginOverlap":  "ReceiveBeginPlay",
-    "Event InitializeComponent":    "ReceiveBeginPlay",
-    "Event UninitializeComponent":  "ReceiveEndPlay",
     "Event EndPlay":                "ReceiveEndPlay",
+    "Event ComponentBeginOverlap":  "ReceiveBeginPlay",
 }
 
-# Regular function node name → full path
 FUNC_MAP = {
     "Print String":              "/Script/Engine.KismetSystemLibrary:PrintString",
     "Delay":                     "/Script/Engine.KismetSystemLibrary:Delay",
@@ -207,10 +306,8 @@ FUNC_MAP = {
     "Play Sound at Location":    "/Script/Engine.GameplayStatics:PlaySoundAtLocation",
     "Get Distance To":           "/Script/Engine.Actor:GetDistanceTo",
     "Set Timer by Function Name":"/Script/Engine.KismetSystemLibrary:SetTimerDelegate",
-    "Clear Timer by Handle":     "/Script/Engine.KismetSystemLibrary:ClearTimer",
     "Get World Delta Seconds":   "/Script/Engine.KismetSystemLibrary:GetWorldDeltaSeconds",
     "Line Trace By Channel":     "/Script/Engine.KismetSystemLibrary:LineTraceSingle",
-    "Spawn Actor from Class":    "/Script/Engine.GameplayStatics:BeginSpawningActorFromClass",
 }
 
 
@@ -224,7 +321,6 @@ def create_blueprint(cmd):
     if not name:
         return err("create_blueprint: 'name' is required")
 
-    # Ensure the /Game/MCP directory exists FIRST
     _ensure_mcp_dir()
 
     parent = _resolve_parent_class(parent_str)
@@ -241,7 +337,6 @@ def create_blueprint(cmd):
     )
 
     if bp is None:
-        # Retry after re-ensuring directory
         _ensure_mcp_dir()
         bp = tools.create_asset(
             asset_name=name,
@@ -251,12 +346,30 @@ def create_blueprint(cmd):
         )
 
     if bp is None:
-        return err(f"create_blueprint: failed to create '{name}' — check Output Log for UE errors")
+        return err(f"create_blueprint: failed to create '{name}'")
 
     try:
         unreal.EditorAssetLibrary.save_asset(f"/Game/MCP/{name}", only_if_is_dirty=False)
     except Exception as e:
-        unreal.log_warning(f"[MCPBlueprint] save_asset after create failed: {e}")
+        unreal.log_warning(f"[MCPBlueprint] save_asset warning: {e}")
+
+    is_comp = _is_component_bp(bp)
+    if is_comp:
+        # Pre-create the ReceiveBeginPlay and ReceiveTick graphs for components
+        # so nodes can be added immediately without needing a separate add_node call
+        for func_name in ("ReceiveBeginPlay", "ReceiveTick"):
+            if not _find_graph_by_name(bp, func_name):
+                try:
+                    unreal.BlueprintEditorLibrary.add_function_override(bp, func_name)
+                    unreal.log(f"[MCPBlueprint] Created override graph: {func_name}")
+                except Exception as e:
+                    unreal.log_warning(f"[MCPBlueprint] Could not create {func_name}: {e}")
+
+        try:
+            unreal.BlueprintEditorLibrary.compile_blueprint(bp)
+            unreal.EditorAssetLibrary.save_asset(f"/Game/MCP/{name}", only_if_is_dirty=False)
+        except Exception:
+            pass
 
     return ok(f"Created Blueprint '{name}' (parent: {parent_str})", blueprint=name)
 
@@ -277,7 +390,7 @@ def add_variable(cmd):
     if not var_name: return err("add_variable: 'variable_name' is required")
 
     if var_type not in VAR_TYPES:
-        var_type = "Float"  # graceful fallback
+        var_type = "Float"
 
     pin_cat, pin_sub = VAR_TYPES[var_type]
 
@@ -308,7 +421,7 @@ def add_variable(cmd):
                 bp, var_name, str(default)
             )
         except Exception:
-            pass  # best-effort
+            pass
 
     try:
         unreal.BlueprintEditorLibrary.compile_blueprint(bp)
@@ -337,9 +450,11 @@ def add_node(cmd):
     except ValueError as e:
         return err(str(e))
 
-    graph = _event_graph(bp)
+    # Get the correct working graph for this blueprint type + event type
+    graph = _get_working_graph(bp, node_type)
     if graph is None:
-        return err(f"add_node: EventGraph not found in {bp_name}")
+        return err(f"add_node: No usable graph found in '{bp_name}'. "
+                   f"Tried EventGraph and component override graphs.")
 
     node = None
 
@@ -347,6 +462,42 @@ def add_node(cmd):
         # ── Event nodes ──────────────────────────────────────────────────────
         if node_type in EVENT_MAP:
             func_name = EVENT_MAP[node_type]
+
+            # For component blueprints, the "event node" IS the function entry
+            # of the override graph — we don't add a node, the entry is already there.
+            if _is_component_bp(bp):
+                # The graph IS the event — find the function entry node
+                nodes = graph.get_editor_property("nodes") or []
+                for n in nodes:
+                    try:
+                        cls_name = n.get_class().get_name()
+                        if "FunctionEntry" in cls_name or "Event" in cls_name:
+                            try:
+                                n.set_editor_property("node_comment", node_id)
+                            except Exception:
+                                pass
+                            return ok(
+                                f"Using component override entry for '{node_type}' (id={node_id})",
+                                node_id=node_id
+                            )
+                    except Exception:
+                        pass
+                # If we get here, tag the first node as the event
+                if nodes:
+                    try:
+                        nodes[0].set_editor_property("node_comment", node_id)
+                    except Exception:
+                        pass
+                    return ok(
+                        f"Tagged first graph node as '{node_type}' (id={node_id})",
+                        node_id=node_id
+                    )
+                return ok(
+                    f"[WARN] Component graph '{graph.get_name()}' has no nodes yet — event entry will appear after compile",
+                    node_id=node_id, warning=True
+                )
+
+            # Actor-based blueprint — add event node normally
             try:
                 node = unreal.BlueprintEditorLibrary.add_function_call_node_to_graph(
                     bp, f"/Script/Engine.Actor:{func_name}", graph, x, y
@@ -406,20 +557,11 @@ def add_node(cmd):
             except Exception:
                 pass
 
-        # ── Named function nodes (FUNC_MAP) ──────────────────────────────────
+        # ── Named function nodes ──────────────────────────────────────────────
         elif node_type in FUNC_MAP:
             try:
                 node = unreal.BlueprintEditorLibrary.add_function_call_node_to_graph(
                     bp, FUNC_MAP[node_type], graph, x, y
-                )
-            except Exception:
-                pass
-
-        # ── Branch / Select nodes ─────────────────────────────────────────────
-        elif node_type in ("Branch", "If"):
-            try:
-                node = unreal.BlueprintEditorLibrary.add_function_call_node_to_graph(
-                    bp, "/Script/Engine.KismetSystemLibrary:PrintString", graph, x, y
                 )
             except Exception:
                 pass
@@ -433,7 +575,6 @@ def add_node(cmd):
             node_id=node_id, warning=True
         )
 
-    # Tag node with MCP id so connect_nodes can find it
     try:
         node.set_editor_property("node_comment", node_id)
     except Exception:
@@ -459,14 +600,16 @@ def connect_nodes(cmd):
     except ValueError as e:
         return err(str(e))
 
-    graph = _event_graph(bp)
-    if graph is None:
-        return err(f"connect_nodes: EventGraph not found in {bp_name}")
-
-    nodes = graph.get_editor_property("nodes") or []
+    # Search ALL graphs for nodes (component BPs have multiple override graphs)
+    all_nodes = []
+    for g in _get_graphs(bp):
+        try:
+            all_nodes.extend(g.get_editor_property("nodes") or [])
+        except Exception:
+            pass
 
     def _find(nid):
-        for n in nodes:
+        for n in all_nodes:
             try:
                 if n.get_editor_property("node_comment") == nid:
                     return n
@@ -554,12 +697,12 @@ def compile_blueprint(cmd):
     try:
         unreal.BlueprintEditorLibrary.compile_blueprint(bp)
     except Exception as e:
-        unreal.log_warning(f"[MCPBlueprint] compile_blueprint warning: {e}")
+        unreal.log_warning(f"[MCPBlueprint] compile warning: {e}")
 
     try:
         unreal.EditorAssetLibrary.save_asset(f"/Game/MCP/{name}", only_if_is_dirty=False)
     except Exception as e:
-        unreal.log_warning(f"[MCPBlueprint] save_asset warning: {e}")
+        unreal.log_warning(f"[MCPBlueprint] save warning: {e}")
 
     return ok(f"Compiled and saved {name}")
 
@@ -594,7 +737,6 @@ def execute_batch(commands):
     if not isinstance(commands, list):
         return {"success": False, "error": "commands must be a list", "results": []}
 
-    # Ensure /Game/MCP exists before any command runs
     _ensure_mcp_dir()
 
     results   = []
@@ -605,9 +747,12 @@ def execute_batch(commands):
         results.append(r)
         if r.get("success"):
             succeeded += 1
+            if r.get("warning"):
+                unreal.log_warning(f"[MCPBlueprint] WARN: {r.get('message','?')}")
         else:
             failed += 1
             unreal.log_error(f"[MCPBlueprint] FAIL: {r.get('message','?')}")
+
     return {
         "success":   failed == 0,
         "total":     len(commands),

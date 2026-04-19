@@ -504,7 +504,7 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
     <button class="nav-link" onclick="go('install')">Install</button>
     <button class="nav-link" onclick="go('translator')">Translator</button>
     <button class="nav-link" onclick="go('plugin')">Plugin Docs</button>
-    <a href="https://github.com/mkbrown261/unreal-assistant/releases" target="_blank" class="dl-btn">⬇ Download Plugin</a>
+    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.0.0/MCPBlueprint-v1.0.0.zip" class="dl-btn">⬇ Download Plugin</a>
   </div>
 </nav>
 
@@ -517,7 +517,7 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
     receives AI-generated Blueprint commands, and creates fully wired, compiled Blueprints — automatically.
   </p>
   <div class="hero-actions">
-    <a href="https://github.com/mkbrown261/unreal-assistant/releases" target="_blank" class="btn-primary">⬇ Download Plugin (.uplugin)</a>
+    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.0.0/MCPBlueprint-v1.0.0.zip" class="btn-primary">⬇ Download Plugin v1.0.0</a>
     <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-ghost">⭐ GitHub Source</a>
   </div>
   <div class="stats">
@@ -857,12 +857,12 @@ curl -X POST http://localhost:3001/api/blueprint/generate \
     <div class="dl-card">
       <div style="font-size:48px;margin-bottom:16px">⬇</div>
       <h3>Download the Plugin</h3>
-      <p>Get the complete MCPBlueprint Unreal Engine 5 plugin — C++ source, .uplugin, Build.cs, and all headers included. MIT licensed and open source.</p>
+      <p>Get the complete MCPBlueprint Unreal Engine 5 plugin — Python-based, zero compilation required. Drop the folder in, enable, and go. MIT licensed and open source.</p>
       <div class="dl-links">
-        <a href="https://github.com/mkbrown261/unreal-assistant/releases" target="_blank" class="btn-primary">⬇ Download Latest Release</a>
+        <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.0.0/MCPBlueprint-v1.0.0.zip" class="btn-primary">⬇ Download v1.0.0 (.zip)</a>
         <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-ghost">⭐ View Source on GitHub</a>
       </div>
-      <p style="margin-top:20px;font-size:12px;color:var(--text3)">Unreal Engine 5.1+ · C++17 · MIT License · No marketplace account required</p>
+      <p style="margin-top:20px;font-size:12px;color:var(--text3)">Unreal Engine 5.1+ · Python Script Plugin · MIT License · No compilation required</p>
     </div>
   </div>
 </section>

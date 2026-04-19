@@ -504,20 +504,20 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
     <button class="nav-link" onclick="go('install')">Install</button>
     <button class="nav-link" onclick="go('translator')">Translator</button>
     <button class="nav-link" onclick="go('plugin')">Plugin Docs</button>
-    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v2.0.0/MCPBlueprint-v2.0.0.zip" class="dl-btn">⬇ Download Plugin</a>
+    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v2.0.1/MCPBlueprint-v2.0.1.zip" class="dl-btn">⬇ Download Plugin</a>
   </div>
 </nav>
 
 <!-- HERO -->
 <section class="hero">
-  <div class="badge"><span class="badge-dot"></span>Unreal Engine 5 · AI Blueprint Generator · v2.0.0</div>
+  <div class="badge"><span class="badge-dot"></span>Unreal Engine 5 · AI Blueprint Generator · v2.0.1</div>
   <h1 class="hero-title">AI Blueprints,<br/>Inside Unreal Engine</h1>
   <p class="hero-sub">
     Describe game logic in plain English. The plugin runs <strong>directly inside Unreal Engine</strong>,
     opens a <strong>persistent chat panel</strong> in your browser, calls AI, and creates Blueprints with variables and function stubs. Results appear in the chat — never the Output Log.
   </p>
   <div class="hero-actions">
-    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v2.0.0/MCPBlueprint-v2.0.0.zip" class="btn-primary">⬇ Download Plugin v2.0.0</a>
+    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v2.0.1/MCPBlueprint-v2.0.1.zip" class="btn-primary">⬇ Download Plugin v2.0.1</a>
     <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-ghost">⭐ GitHub Source</a>
   </div>
   <div class="stats">
@@ -636,7 +636,7 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
           <p><strong>1a — Download and extract</strong></p>
           <p>Click the button below. Extract the zip. You'll get a folder called <code>MCPBlueprint</code>.</p>
           <div style="margin-top:10px;margin-bottom:18px;">
-            <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v2.0.0/MCPBlueprint-v2.0.0.zip" class="btn-primary" style="display:inline-block;text-decoration:none;">⬇ Download MCPBlueprint-v2.0.0.zip</a>
+            <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v2.0.1/MCPBlueprint-v2.0.1.zip" class="btn-primary" style="display:inline-block;text-decoration:none;">⬇ Download MCPBlueprint-v2.0.1.zip</a>
           </div>
 
           <p><strong>1b — Find your Unreal project folder</strong></p>
@@ -965,7 +965,7 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
       <h3>Download the Plugin</h3>
       <p>Drop the folder in, enable it, type prompts in the chat panel. No Node.js, no terminal, no compilation. MIT licensed, open source.</p>
       <div class="dl-links">
-        <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v2.0.0/MCPBlueprint-v2.0.0.zip" class="btn-primary">⬇ Download v2.0.0 (.zip)</a>
+        <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v2.0.1/MCPBlueprint-v2.0.1.zip" class="btn-primary">⬇ Download v2.0.1 (.zip)</a>
         <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-ghost">⭐ View Source on GitHub</a>
       </div>
       <p style="margin-top:20px;font-size:12px;color:var(--text3)">Unreal Engine 5.1+ · Python Script Plugin · MIT License · No compilation required · Chat UI at localhost:8080</p>
@@ -982,7 +982,7 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
     <a class="footer-link" href="#plugin">Docs</a>
     <a class="footer-link" href="#translator">Translator</a>
   </div>
-  <div class="footer-copy">© 2025 Unreal Assistant · v2.0.0 · Hono + Cloudflare Pages</div>
+  <div class="footer-copy">© 2025 Unreal Assistant · v2.0.1 · Hono + Cloudflare Pages</div>
 </footer>
 
 <script>

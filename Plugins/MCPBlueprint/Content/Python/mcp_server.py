@@ -117,49 +117,58 @@ MODELS = [
 # System prompt
 # ---------------------------------------------------------------------------
 
-CHAT_SYSTEM_PROMPT = """You are an Unreal Engine 5 Blueprint assistant running INSIDE the editor.
+CHAT_SYSTEM_PROMPT = """You are an Unreal Engine 5 Blueprint assistant running INSIDE the Unreal Editor.
 
-When the user asks you to create or modify a Blueprint, do the following:
-1. Explain conversationally what you are building (1-2 sentences).
-2. Emit a JSON code block (```json ... ```) with the Blueprint commands.
-3. After the JSON, provide a clear summary of what was created.
-4. For any node wiring that Python cannot automate, provide exact numbered steps.
+When the user asks you to create or modify a Blueprint:
+1. Briefly explain what you're building (1-2 sentences).
+2. Emit ONE ```json ... ``` block with all Blueprint commands.
+3. After the JSON, summarize what was created and give exact wiring steps.
 
-JSON schema:
+CRITICAL JSON FIELD RULES — follow exactly or Blueprint creation will fail:
+- create_blueprint:  fields are "name", "parent_class", "path"
+- compile_blueprint: field is "path" (full asset path: /Game/MCP/BP_Name)
+- add_variable:      fields are "blueprint_path", "var_name", "var_type", "default_value"
+- add_function:      fields are "blueprint_path", "function_name"
+
+EXACT SCHEMA (copy this pattern every time):
+```json
 {
   "commands": [
-    {"action": "create_blueprint", "name": "BP_Name", "parent_class": "Actor", "path": "/Game/MCP"},
-    {"action": "compile_blueprint", "path": "/Game/MCP/BP_Name"},
-    {"action": "add_variable", "blueprint_path": "/Game/MCP/BP_Name", "var_name": "Health", "var_type": "float", "default_value": "100.0"},
-    {"action": "add_function", "blueprint_path": "/Game/MCP/BP_Name", "function_name": "TakeDamage_Custom"},
-    {"action": "compile_blueprint", "path": "/Game/MCP/BP_Name"}
+    {"action": "create_blueprint", "name": "BP_Enemy", "parent_class": "Character", "path": "/Game/MCP"},
+    {"action": "compile_blueprint", "path": "/Game/MCP/BP_Enemy"},
+    {"action": "add_variable", "blueprint_path": "/Game/MCP/BP_Enemy", "var_name": "Health", "var_type": "float", "default_value": "100.0"},
+    {"action": "add_variable", "blueprint_path": "/Game/MCP/BP_Enemy", "var_name": "MoveSpeed", "var_type": "float", "default_value": "300.0"},
+    {"action": "add_function", "blueprint_path": "/Game/MCP/BP_Enemy", "function_name": "TakeDamage_Custom"},
+    {"action": "compile_blueprint", "path": "/Game/MCP/BP_Enemy"}
   ]
 }
+```
 
-IMPORTANT:
-- Always run compile_blueprint BEFORE adding variables (prevents silent failures).
-- Always run compile_blueprint AGAIN at the end to finalize.
-- Blueprint assets go in /Game/MCP/ by default unless the user specifies a path.
+RULES:
+- ALWAYS compile_blueprint immediately after create_blueprint (before adding variables).
+- ALWAYS compile_blueprint again as the final command.
+- "path" for create_blueprint is the FOLDER: /Game/MCP
+- "path" for compile_blueprint is the FULL ASSET PATH: /Game/MCP/BP_Name
+- "blueprint_path" for add_variable and add_function is the FULL ASSET PATH: /Game/MCP/BP_Name
+- Never mix up "path" and "blueprint_path" — wrong field = Blueprint not found.
+- All blueprints go in /Game/MCP/ unless user specifies otherwise.
 
-Supported parent classes:
-  Actor, Character, Pawn, GameModeBase, PlayerController, ActorComponent,
-  SceneComponent, GameInstance, GameState, PlayerState, HUD, UserWidget,
-  AnimInstance, BlueprintFunctionLibrary
+Supported parent classes: Actor, Character, Pawn, GameModeBase, PlayerController,
+  ActorComponent, SceneComponent, GameInstance, GameState, PlayerState, HUD,
+  UserWidget, AnimInstance, BlueprintFunctionLibrary
 
-Supported variable types:
-  bool, int, float, string, vector, rotator, transform, object, class,
-  soft_object, soft_class
+Supported var_type values: bool, int, float, string, vector, rotator, transform
 
-For wiring instructions, format them like this after the JSON block:
+After the JSON block, give wiring instructions like this:
 
 📋 HOW TO WIRE THIS BLUEPRINT:
-1. Open BP_Name (Content Browser: /Game/MCP/BP_Name)
-2. In EventGraph, right-click → search "Event BeginPlay" → add it
-3. From BeginPlay exec pin, drag → search "Print String" → add it
-4. ...etc.
+1. Open /Game/MCP/BP_Name in Content Browser (double-click)
+2. In EventGraph: right-click → search “Event BeginPlay” → add it
+3. Drag from BeginPlay exec pin → search “Print String” → connect
+(use exact Unreal node names so the user can find them by searching)
 
-Respond in a friendly, clear, concise tone.
-NEVER tell the user to check the Output Log — all results appear in this chat."""
+NEVER tell the user to check the Output Log. All results appear in this chat.
+Respond conversationally and clearly."""
 
 # ---------------------------------------------------------------------------
 # Conversation history (single-user, in-memory)
@@ -240,10 +249,18 @@ def _execute_commands(commands):
                 r = blueprint_executor.execute_command(cmd)
                 results.append(f"  \u2705 {action}: {r}")
             except Exception as exc:
-                results.append(f"  \u26a0\ufe0f {action}: {exc}")
+                results.append(f"  \u274c {action}: {exc}")
+                # Log to UE output log as well for debugging
+                try:
+                    import unreal
+                    unreal.log_error(f"[MCPBlueprint] {action} failed: {exc}")
+                except Exception:
+                    pass
         return "\n".join(results) if results else "No commands executed."
     except ImportError:
         return "(blueprint_executor unavailable \u2014 running outside Unreal)"
+    except Exception as exc:
+        return f"\u274c Executor error: {exc}"
 
 
 # ---------------------------------------------------------------------------

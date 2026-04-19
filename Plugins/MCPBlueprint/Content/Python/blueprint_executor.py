@@ -107,6 +107,33 @@ def _make_pin_type(var_type: str):
 # Individual actions
 # ---------------------------------------------------------------------------
 
+def _load_bp(asset_path: str):
+    """
+    Reliably load a Blueprint asset. UE requires the full object path
+    'Package.AssetName' for load_asset to succeed. A bare '/Game/MCP/BP_Foo'
+    path causes 'Failed to find object None./Game/MCP/BP_Foo' warnings.
+    """
+    asset_path = asset_path.rstrip("/")
+    # Extract the asset name from the path
+    asset_name = asset_path.rsplit("/", 1)[-1]
+    # Full object path: /Game/MCP/BP_Foo.BP_Foo
+    full_path = f"{asset_path}.{asset_name}"
+    bp = unreal.load_asset(full_path)
+    if bp is not None:
+        return bp
+    # Fallback: bare path (works on some UE versions)
+    bp = unreal.load_asset(asset_path)
+    return bp
+
+
+def _ensure_dir(path: str):
+    try:
+        if not unreal.EditorAssetLibrary.does_directory_exist(path):
+            unreal.EditorAssetLibrary.make_directory(path)
+    except Exception:
+        pass
+
+
 def _create_blueprint(cmd: dict) -> str:
     name        = cmd.get("name", "BP_New")
     path        = cmd.get("path", "/Game/MCP").rstrip("/")
@@ -115,18 +142,19 @@ def _create_blueprint(cmd: dict) -> str:
                   cmd.get("parent_class", "/Script/Engine.Actor"))
 
     asset_path = f"{path}/{name}"
+    _ensure_dir(path)
 
-    # Load existing asset if already present
-    existing = unreal.load_asset(asset_path)
+    # Check if already exists — use full object path to avoid spurious warnings
+    existing = _load_bp(asset_path)
     if existing and isinstance(existing, unreal.Blueprint):
         return f"Already exists: {asset_path}"
 
     parent_class = unreal.load_class(None, parent_path)
     if not parent_class:
-        parent_class = unreal.Actor
+        parent_class = unreal.Actor.static_class()
 
     factory = unreal.BlueprintFactory()
-    factory.parent_class = parent_class
+    factory.set_editor_property("parent_class", parent_class)
 
     tools = unreal.AssetToolsHelpers.get_asset_tools()
     bp = tools.create_asset(name, path, unreal.Blueprint, factory)
@@ -134,7 +162,10 @@ def _create_blueprint(cmd: dict) -> str:
         raise RuntimeError(f"Failed to create Blueprint at {asset_path}")
 
     # Initial compile so the asset is in a valid state for variable addition
-    unreal.BlueprintEditorLibrary.compile_blueprint(bp)
+    try:
+        unreal.BlueprintEditorLibrary.compile_blueprint(bp)
+    except Exception as e:
+        pass  # Non-fatal; some setups require a save first
     unreal.EditorAssetLibrary.save_asset(asset_path)
     return f"Created {asset_path}"
 
@@ -143,7 +174,7 @@ def _compile_blueprint(cmd: dict) -> str:
     path = cmd.get("path", "").rstrip("/")
     if not path:
         raise ValueError("compile_blueprint requires 'path'")
-    bp = unreal.load_asset(path)
+    bp = _load_bp(path)
     if not bp:
         raise RuntimeError(f"Blueprint not found: {path}")
     unreal.BlueprintEditorLibrary.compile_blueprint(bp)
@@ -160,12 +191,16 @@ def _add_variable(cmd: dict) -> str:
     if not bp_path or not var_name:
         raise ValueError("add_variable requires 'blueprint_path' and 'var_name'")
 
-    bp = unreal.load_asset(bp_path)
+    # Use full object path — bare paths cause "Failed to find object" spam
+    bp = _load_bp(bp_path)
     if not bp:
         raise RuntimeError(f"Blueprint not found: {bp_path}")
 
     # Compile first — some UE versions silently drop variables without this
-    unreal.BlueprintEditorLibrary.compile_blueprint(bp)
+    try:
+        unreal.BlueprintEditorLibrary.compile_blueprint(bp)
+    except Exception:
+        pass
 
     pin_type = _make_pin_type(var_type)
     ok = unreal.BlueprintEditorLibrary.add_member_variable(bp, var_name, pin_type)
@@ -192,7 +227,7 @@ def _add_function(cmd: dict) -> str:
     if not bp_path or not function_name:
         raise ValueError("add_function requires 'blueprint_path' and 'function_name'")
 
-    bp = unreal.load_asset(bp_path)
+    bp = _load_bp(bp_path)
     if not bp:
         raise RuntimeError(f"Blueprint not found: {bp_path}")
 

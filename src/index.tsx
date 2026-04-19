@@ -688,10 +688,11 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
             Go to <strong>Edit → Plugins</strong>. Search for <strong>"MCP Blueprint Generator"</strong>.<br/>
             Check the box to enable it. Click <strong>Restart Now</strong>.
           </p>
-          <p style="margin-top:12px;">After restart, a floating <strong>MCP Blueprint Generator</strong> panel opens automatically inside Unreal. You'll also see in the Output Log:</p>
-          <div class="code">[MCPBlueprint] MCP Blueprint Generator v1.2.0 — opening UI panel…</div>
-          <p style="margin-top:10px;color:var(--green);font-size:13px;font-weight:600;">✓ Plugin is running. The panel is open and waiting.</p>
-          <p style="margin-top:8px;color:var(--text3);font-size:12px;">Panel closed? Reopen it anytime from the Output Log Python console: <code>import mcp_ui; mcp_ui.show()</code></p>
+          <p style="margin-top:12px;">After restart you'll see a new <strong>🤖 MCP AI</strong> button appear in the Level Editor toolbar (top of the editor). You'll also see in the Output Log:</p>
+          <div class="code">[MCPBlueprint] MCP Blueprint Generator v1.2.0 loading…
+[MCPBlueprint] ✔ [MCP AI] button added to the Level Editor toolbar</div>
+          <p style="margin-top:10px;color:var(--green);font-size:13px;font-weight:600;">✓ Plugin is running. Click the [MCP AI] toolbar button to open the generator.</p>
+          <p style="margin-top:8px;color:var(--text3);font-size:12px;">On some setups a full floating window opens automatically. On others, the toolbar button is your entry point — both work identically.</p>
         </div>
       </div>
 
@@ -699,8 +700,8 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
       <div class="step">
         <div class="step-num">3</div>
         <div>
-          <h3>Paste your OpenRouter API key into the panel</h3>
-          <p>In the floating panel, find the <strong>OPENROUTER API KEY</strong> field and paste your key. It's saved automatically — you only do this once.</p>
+          <h3>Enter your OpenRouter API key — one time only</h3>
+          <p>Click the <strong>🤖 MCP AI</strong> toolbar button. The first time you click it, it asks for your API key. Paste it and press OK — it's saved permanently. You never have to enter it again.</p>
 
           <!-- Key field mockup -->
           <div style="margin:14px 0;background:#0b0f1a;border:1.5px solid #1e2d45;border-radius:12px;padding:16px 18px;">
@@ -722,8 +723,8 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
       <div class="step">
         <div class="step-num">4</div>
         <div>
-          <h3>Pick a model from the dropdown — then type your prompt and click Generate</h3>
-          <p>The <strong>MODEL</strong> dropdown is always at the top of the panel. Click it to switch between Claude, Gemini, DeepSeek, and GPT-4o instantly — no commands, no terminal.</p>
+          <h3>Pick a model, type your prompt, click Generate</h3>
+          <p>After entering your key, a <strong>model selection</strong> step appears showing all 20 available AI models. Pick one by number (or press OK to keep the default), then type your Blueprint description and hit Generate. Results appear in the Output Log inside Unreal.</p>
 
           <!-- Model dropdown mockup -->
           <div style="margin:14px 0;background:#0d0d1f;border-bottom:1px solid #1e2d45;border-radius:12px 12px 0 0;padding:10px 18px;display:flex;align-items:center;gap:12px;">

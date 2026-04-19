@@ -5,561 +5,564 @@ const app = new Hono<{ Bindings: { OPENAI_API_KEY?: string } }>()
 
 app.use('/api/*', cors())
 
-// ── Landing page ─────────────────────────────────────────────────────────────
-app.get('/', (c) => {
-  return c.html(`<!DOCTYPE html>
+// ── Blueprint Execution Translator ────────────────────────────────────────────
+// POST /api/translate
+// Input:  { commands: [...] }  — raw MCP Blueprint command array
+// Output: { translated: [...] } — clean, fully explicit Blueprint Manager JSON
+//         ready to POST directly to POST /unreal/execute inside Unreal Engine
+//
+// Rules:
+//   - Normalize node names to canonical Unreal names
+//   - Ensure every node has a unique numeric id
+//   - Explicit action / blueprint_name / node_type / parameters / connections fields
+//   - Preserve execution order
+//   - compile_blueprint always last
+
+app.post('/api/translate', async (c) => {
+  let body: { commands?: any[] }
+  try { body = await c.req.json() } catch { return c.json({ error: 'Invalid JSON body' }, 400) }
+
+  const raw = body.commands
+  if (!Array.isArray(raw) || raw.length === 0)
+    return c.json({ error: "'commands' must be a non-empty array" }, 400)
+
+  // ── Node name normalisation map ─────────────────────────────────────────────
+  const NODE_NAMES: Record<string, string> = {
+    'beginplay':               'Event BeginPlay',
+    'event beginplay':         'Event BeginPlay',
+    'receivebeginplay':        'Event BeginPlay',
+    'tick':                    'Event Tick',
+    'event tick':              'Event Tick',
+    'receivetick':             'Event Tick',
+    'actorendoverlap':         'Event ActorEndOverlap',
+    'event actorendoverlap':   'Event ActorEndOverlap',
+    'actorbeginoverlap':       'Event ActorBeginOverlap',
+    'event actorbeginoverlap': 'Event ActorBeginOverlap',
+    'branch':                  'Branch',
+    'ifthenelse':              'Branch',
+    'sequence':                'Sequence',
+    'delay':                   'Delay',
+    'timeline':                'Timeline',
+    'print string':            'Print String',
+    'printstring':             'Print String',
+    'cast to character':       'Cast To Character',
+    'casttocharacter':         'Cast To Character',
+    'get player pawn':         'Get Player Pawn',
+    'getplayerpawn':           'Get Player Pawn',
+    'get distance to':         'Get Distance To',
+    'getdistanceto':           'Get Distance To',
+    'ai move to':              'AI Move To',
+    'aimoveto':                'AI Move To',
+    'simple move to actor':    'Simple Move To Actor',
+    'destroy actor':           'Destroy Actor',
+    'destroyactor':            'Destroy Actor',
+    'play sound at location':  'Play Sound at Location',
+    'spawn emitter at location':'Spawn Emitter at Location',
+    'set':                     'Set Variable',
+    'get':                     'Get Variable',
+    'set variable':            'Set Variable',
+    'get variable':            'Get Variable',
+    'call function':           'Call Function',
+  }
+
+  function normalizeNodeName(raw: string): string {
+    const key = raw.toLowerCase().trim()
+    // handle "Call Function: XYZ" prefix
+    if (key.startsWith('call function:')) return raw // keep original with function name
+    return NODE_NAMES[key] || raw
+  }
+
+  // ── Pin name normalisation ──────────────────────────────────────────────────
+  const PIN_NAMES: Record<string, string> = {
+    'then': 'Then', 'exec': 'Execute', 'execute': 'Execute',
+    'true': 'True', 'false': 'False',
+    'pressed': 'Pressed', 'released': 'Released',
+    'play': 'Play', 'stop': 'Stop', 'reverse': 'Reverse',
+    'completed': 'Completed', 'update': 'Update',
+  }
+  function normalizePin(p: string): string {
+    return PIN_NAMES[p?.toLowerCase()] || p || 'Execute'
+  }
+
+  // ── ID tracker ─────────────────────────────────────────────────────────────
+  //  MCP commands use string ids like "node_0". We keep them as-is but guarantee
+  //  every add_node gets one; generate one if missing.
+  let autoId = 0
+  const usedIds = new Set<string>()
+
+  function ensureId(cmd: any): string {
+    if (cmd.id && !usedIds.has(cmd.id)) { usedIds.add(cmd.id); return cmd.id }
+    let id: string
+    do { id = `node_${autoId++}` } while (usedIds.has(id))
+    usedIds.add(id)
+    return id
+  }
+
+  // ── Translate each command ─────────────────────────────────────────────────
+  const translated: any[] = []
+  const compileCommands: any[] = []  // collect compiles, always push to end
+
+  for (const cmd of raw) {
+    if (!cmd.action) continue
+    const action: string = cmd.action
+
+    switch (action) {
+
+      case 'create_blueprint': {
+        translated.push({
+          action: 'create_blueprint',
+          blueprint_name: cmd.name || cmd.blueprint || 'BP_Unnamed',
+          parameters: {
+            parent_class: cmd.parent_class || 'Actor',
+          },
+        })
+        break
+      }
+
+      case 'add_variable': {
+        translated.push({
+          action: 'add_variable',
+          blueprint_name: cmd.blueprint || cmd.name,
+          parameters: {
+            variable_name: cmd.variable_name,
+            variable_type: cmd.variable_type || 'Boolean',
+            default_value: cmd.default_value ?? null,
+          },
+        })
+        break
+      }
+
+      case 'add_node': {
+        const nodeId = ensureId(cmd)
+        const nodeType = normalizeNodeName(cmd.node || '')
+
+        // Build explicit parameters object
+        const params: Record<string, any> = { ...(cmd.params || {}) }
+        if (cmd.condition !== undefined) params.condition = cmd.condition
+        if (cmd.variable !== undefined) params.variable = cmd.variable
+        if (cmd.value !== undefined) params.value = cmd.value
+
+        translated.push({
+          action: 'add_node',
+          blueprint_name: cmd.blueprint,
+          node_type: nodeType,
+          node_id: nodeId,
+          parameters: {
+            position: { x: cmd.x ?? 0, y: cmd.y ?? 0 },
+            ...params,
+          },
+        })
+        break
+      }
+
+      case 'connect_nodes': {
+        translated.push({
+          action: 'connect_nodes',
+          blueprint_name: cmd.blueprint,
+          connections: {
+            source: {
+              node_id: cmd.from_node,
+              pin: normalizePin(cmd.from_pin),
+            },
+            target: {
+              node_id: cmd.to_node,
+              pin: normalizePin(cmd.to_pin),
+            },
+          },
+        })
+        break
+      }
+
+      case 'set_variable': {
+        translated.push({
+          action: 'set_variable',
+          blueprint_name: cmd.blueprint || cmd.name,
+          parameters: {
+            variable_name: cmd.variable_name,
+            value: cmd.value ?? cmd.default_value ?? null,
+          },
+        })
+        break
+      }
+
+      case 'compile_blueprint': {
+        // Deferred — always goes last
+        compileCommands.push({
+          action: 'compile_blueprint',
+          blueprint_name: cmd.name || cmd.blueprint,
+          parameters: {},
+        })
+        break
+      }
+
+      default: {
+        // Pass unknown commands through unchanged with action field
+        translated.push({ action, blueprint_name: cmd.blueprint || cmd.name, parameters: cmd })
+      }
+    }
+  }
+
+  // Compile always last
+  translated.push(...compileCommands)
+
+  return c.json({
+    translated,
+    meta: {
+      input_count: raw.length,
+      output_count: translated.length,
+      timestamp: new Date().toISOString(),
+    },
+  })
+})
+
+// ── Blueprint generation API (AI → MCP JSON) ──────────────────────────────────
+const SYSTEM_PROMPT = `You are an Unreal Engine Blueprint Generation System.
+Convert user intent into structured JSON commands for the MCP Blueprint server.
+DO NOT explain. DO NOT give tutorials. Output ONLY valid JSON.
+
+COMMANDS: create_blueprint | add_node | connect_nodes | set_variable | add_variable | compile_blueprint
+
+RULES:
+- create_blueprint first, compile_blueprint last
+- Node names: Event BeginPlay, Event Tick, Event ActorBeginOverlap, Event ActorEndOverlap, Branch, Sequence, Delay, Timeline, Print String, Cast To Character, Get Player Pawn, Get Distance To, AI Move To, Destroy Actor, Play Sound at Location, Spawn Emitter at Location, Set, Get
+- Connect all execution flow — no floating nodes
+- Declare variables with add_variable before using them
+- Use BP_<Name> naming. Include x/y positions (+250x per step).
+
+OUTPUT FORMAT (JSON only, no markdown):
+{"commands":[{"action":"create_blueprint","name":"BP_X","parent_class":"Actor"},{"action":"add_node","blueprint":"BP_X","node":"Event BeginPlay","id":"node_0","x":0,"y":0},{"action":"compile_blueprint","name":"BP_X"}]}`
+
+app.post('/api/generate', async (c) => {
+  let body: { prompt?: string }
+  try { body = await c.req.json() } catch { return c.json({ error: 'Invalid JSON body' }, 400) }
+  if (!body.prompt?.trim()) return c.json({ error: 'prompt is required' }, 400)
+
+  const apiKey = c.env.OPENAI_API_KEY
+  if (!apiKey) return c.json(getDemoResponse(body.prompt))
+
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: body.prompt.trim() },
+        ],
+        max_tokens: 2500,
+        temperature: 0.2,
+      }),
+    })
+    if (!res.ok) return c.json({ error: `OpenAI error: ${res.status}` }, 502)
+    const data = await res.json() as any
+    const content = data.choices?.[0]?.message?.content
+    if (!content) return c.json({ error: 'No content from AI' }, 502)
+    return c.json(JSON.parse(content))
+  } catch (e: any) {
+    return c.json({ error: e.message || 'Generation failed' }, 500)
+  }
+})
+
+// ── Demo response ─────────────────────────────────────────────────────────────
+function getDemoResponse(prompt: string) {
+  const l = prompt.toLowerCase()
+  if (l.includes('enemy') || l.includes('chase') || l.includes('ai')) return { commands: [
+    { action:'create_blueprint', name:'BP_EnemyAI', parent_class:'Character' },
+    { action:'add_variable', blueprint:'BP_EnemyAI', variable_name:'DetectionRadius', variable_type:'Float', default_value:500.0 },
+    { action:'add_variable', blueprint:'BP_EnemyAI', variable_name:'bIsChasing', variable_type:'Boolean', default_value:false },
+    { action:'add_node', blueprint:'BP_EnemyAI', node:'Event BeginPlay', id:'node_0', x:0, y:0 },
+    { action:'add_node', blueprint:'BP_EnemyAI', node:'Print String', id:'node_1', x:250, y:0, params:{ InString:'Enemy AI Ready' } },
+    { action:'add_node', blueprint:'BP_EnemyAI', node:'Event Tick', id:'node_2', x:0, y:300 },
+    { action:'add_node', blueprint:'BP_EnemyAI', node:'Get Player Pawn', id:'node_3', x:200, y:400 },
+    { action:'add_node', blueprint:'BP_EnemyAI', node:'Get Distance To', id:'node_4', x:450, y:350 },
+    { action:'add_node', blueprint:'BP_EnemyAI', node:'Branch', id:'node_5', x:700, y:300, condition:'Distance <= DetectionRadius' },
+    { action:'add_node', blueprint:'BP_EnemyAI', node:'AI Move To', id:'node_6', x:950, y:200, params:{ GoalActor:'PlayerPawn' } },
+    { action:'connect_nodes', blueprint:'BP_EnemyAI', from_node:'node_0', from_pin:'Then', to_node:'node_1', to_pin:'Execute' },
+    { action:'connect_nodes', blueprint:'BP_EnemyAI', from_node:'node_2', from_pin:'Then', to_node:'node_5', to_pin:'Execute' },
+    { action:'connect_nodes', blueprint:'BP_EnemyAI', from_node:'node_5', from_pin:'True', to_node:'node_6', to_pin:'Execute' },
+    { action:'compile_blueprint', name:'BP_EnemyAI' },
+  ]}
+  if (l.includes('door')) return { commands: [
+    { action:'create_blueprint', name:'BP_InteractiveDoor', parent_class:'Actor' },
+    { action:'add_variable', blueprint:'BP_InteractiveDoor', variable_name:'bIsOpen', variable_type:'Boolean', default_value:false },
+    { action:'add_variable', blueprint:'BP_InteractiveDoor', variable_name:'OpenAngle', variable_type:'Float', default_value:90.0 },
+    { action:'add_node', blueprint:'BP_InteractiveDoor', node:'Event ActorBeginOverlap', id:'node_0', x:0, y:0 },
+    { action:'add_node', blueprint:'BP_InteractiveDoor', node:'Branch', id:'node_1', x:280, y:0, condition:'NOT bIsOpen' },
+    { action:'add_node', blueprint:'BP_InteractiveDoor', node:'Timeline', id:'node_2', x:520, y:0, params:{ name:'DoorOpen', length:1.0 } },
+    { action:'connect_nodes', blueprint:'BP_InteractiveDoor', from_node:'node_0', from_pin:'Then', to_node:'node_1', to_pin:'Execute' },
+    { action:'connect_nodes', blueprint:'BP_InteractiveDoor', from_node:'node_1', from_pin:'True', to_node:'node_2', to_pin:'Play' },
+    { action:'compile_blueprint', name:'BP_InteractiveDoor' },
+  ]}
+  if (l.includes('health') || l.includes('pickup')) return { commands: [
+    { action:'create_blueprint', name:'BP_HealthPickup', parent_class:'Actor' },
+    { action:'add_variable', blueprint:'BP_HealthPickup', variable_name:'HealAmount', variable_type:'Float', default_value:25.0 },
+    { action:'add_variable', blueprint:'BP_HealthPickup', variable_name:'bPickedUp', variable_type:'Boolean', default_value:false },
+    { action:'add_node', blueprint:'BP_HealthPickup', node:'Event ActorBeginOverlap', id:'node_0', x:0, y:0 },
+    { action:'add_node', blueprint:'BP_HealthPickup', node:'Branch', id:'node_1', x:280, y:0, condition:'NOT bPickedUp' },
+    { action:'add_node', blueprint:'BP_HealthPickup', node:'Cast To Character', id:'node_2', x:520, y:0 },
+    { action:'add_node', blueprint:'BP_HealthPickup', node:'Destroy Actor', id:'node_3', x:780, y:0 },
+    { action:'connect_nodes', blueprint:'BP_HealthPickup', from_node:'node_0', from_pin:'Then', to_node:'node_1', to_pin:'Execute' },
+    { action:'connect_nodes', blueprint:'BP_HealthPickup', from_node:'node_1', from_pin:'True', to_node:'node_2', to_pin:'Execute' },
+    { action:'connect_nodes', blueprint:'BP_HealthPickup', from_node:'node_2', from_pin:'Then', to_node:'node_3', to_pin:'Execute' },
+    { action:'compile_blueprint', name:'BP_HealthPickup' },
+  ]}
+  return { commands: [
+    { action:'create_blueprint', name:'BP_CustomActor', parent_class:'Actor' },
+    { action:'add_variable', blueprint:'BP_CustomActor', variable_name:'bIsActive', variable_type:'Boolean', default_value:true },
+    { action:'add_node', blueprint:'BP_CustomActor', node:'Event BeginPlay', id:'node_0', x:0, y:0 },
+    { action:'add_node', blueprint:'BP_CustomActor', node:'Branch', id:'node_1', x:280, y:0, condition:'bIsActive' },
+    { action:'add_node', blueprint:'BP_CustomActor', node:'Print String', id:'node_2', x:520, y:0, params:{ InString:'Actor is Active' } },
+    { action:'connect_nodes', blueprint:'BP_CustomActor', from_node:'node_0', from_pin:'Then', to_node:'node_1', to_pin:'Execute' },
+    { action:'connect_nodes', blueprint:'BP_CustomActor', from_node:'node_1', from_pin:'True', to_node:'node_2', to_pin:'Execute' },
+    { action:'compile_blueprint', name:'BP_CustomActor' },
+  ]}
+}
+
+// ── Landing page ──────────────────────────────────────────────────────────────
+app.get('/', (c) => c.html(`<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Unreal Assistant — AI Blueprint Generator</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
-  <style>
-    :root {
-      --bg:        #0a0a0f;
-      --bg2:       #0f0f1a;
-      --bg3:       #141428;
-      --panel:     #12121f;
-      --border:    rgba(138,43,226,0.18);
-      --border2:   rgba(138,43,226,0.35);
-      --purple:    #8a2be2;
-      --purple2:   #a855f7;
-      --purple3:   #c084fc;
-      --cyan:      #00d4ff;
-      --cyan2:     #06b6d4;
-      --green:     #10b981;
-      --orange:    #f59e0b;
-      --red:       #ef4444;
-      --text:      #e2e8f0;
-      --text2:     #94a3b8;
-      --text3:     #64748b;
-      --glow:      0 0 40px rgba(138,43,226,0.25);
-      --glow2:     0 0 80px rgba(138,43,226,0.15);
-    }
-    * { margin:0; padding:0; box-sizing:border-box; }
-    html { scroll-behavior: smooth; }
-    body {
-      font-family:'Inter',sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      overflow-x: hidden;
-    }
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Unreal Assistant — AI Blueprint MCP Plugin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#0a0a0f;--bg2:#0f0f1a;--panel:#12121f;
+  --border:rgba(138,43,226,.18);--border2:rgba(138,43,226,.4);
+  --purple:#8a2be2;--purple2:#a855f7;--purple3:#c084fc;
+  --cyan:#00d4ff;--green:#10b981;--orange:#f59e0b;--red:#ef4444;
+  --text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;
+  --glow:0 0 40px rgba(138,43,226,.25);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+  background-image:linear-gradient(rgba(138,43,226,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(138,43,226,.04) 1px,transparent 1px);
+  background-size:40px 40px}
 
-    /* ── Grid bg ── */
-    body::before {
-      content:'';
-      position:fixed; inset:0; z-index:0; pointer-events:none;
-      background-image:
-        linear-gradient(rgba(138,43,226,0.04) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(138,43,226,0.04) 1px, transparent 1px);
-      background-size: 40px 40px;
-    }
+/* NAV */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;align-items:center;justify-content:space-between;
+  padding:0 40px;height:64px;background:rgba(10,10,15,.9);backdrop-filter:blur(20px);border-bottom:1px solid var(--border)}
+.logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:17px;color:#fff;text-decoration:none}
+.logo-icon{width:34px;height:34px;background:linear-gradient(135deg,var(--purple),var(--purple2));
+  border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 0 20px rgba(138,43,226,.5)}
+.nav-links{display:flex;align-items:center;gap:6px}
+.nav-link{padding:7px 14px;border-radius:8px;font-size:13px;font-weight:500;color:var(--text2);
+  text-decoration:none;transition:.2s;cursor:pointer;background:none;border:none}
+.nav-link:hover{color:#fff;background:rgba(255,255,255,.06)}
+.dl-btn{padding:8px 20px;border-radius:9px;background:linear-gradient(135deg,var(--purple),var(--purple2));
+  color:#fff;font-size:13px;font-weight:700;border:none;cursor:pointer;
+  box-shadow:0 0 20px rgba(138,43,226,.35);transition:.2s;text-decoration:none;display:flex;align-items:center;gap:6px}
+.dl-btn:hover{transform:translateY(-1px);box-shadow:0 0 30px rgba(168,85,247,.5)}
 
-    /* ── Nav ── */
-    nav {
-      position:fixed; top:0; left:0; right:0; z-index:100;
-      display:flex; align-items:center; justify-content:space-between;
-      padding: 0 40px; height: 64px;
-      background: rgba(10,10,15,0.85);
-      backdrop-filter: blur(20px);
-      border-bottom: 1px solid var(--border);
-    }
-    .nav-logo {
-      display:flex; align-items:center; gap:10px;
-      font-weight:800; font-size:17px; color:#fff; text-decoration:none;
-    }
-    .nav-logo-icon {
-      width:34px; height:34px;
-      background: linear-gradient(135deg, var(--purple), var(--purple2));
-      border-radius:9px;
-      display:flex; align-items:center; justify-content:center;
-      font-size:17px; box-shadow: 0 0 20px rgba(138,43,226,0.5);
-    }
-    .nav-links { display:flex; align-items:center; gap:8px; }
-    .nav-link {
-      padding:7px 16px; border-radius:8px;
-      font-size:13px; font-weight:500; color:var(--text2);
-      text-decoration:none; transition:all .2s;
-      cursor:pointer; background:none; border:none;
-    }
-    .nav-link:hover { color:#fff; background:rgba(255,255,255,0.06); }
-    .nav-cta {
-      padding:8px 20px; border-radius:9px;
-      background: linear-gradient(135deg, var(--purple), var(--purple2));
-      color:#fff; font-size:13px; font-weight:700;
-      border:none; cursor:pointer;
-      box-shadow: 0 0 20px rgba(138,43,226,0.35);
-      transition:all .2s; text-decoration:none;
-    }
-    .nav-cta:hover { transform:translateY(-1px); box-shadow:0 0 30px rgba(168,85,247,0.5); }
+/* HERO */
+.hero{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;text-align:center;padding:100px 24px 60px}
+.badge{display:inline-flex;align-items:center;gap:8px;padding:6px 16px;border-radius:99px;
+  background:rgba(138,43,226,.12);border:1px solid var(--border2);font-size:12px;font-weight:600;
+  color:var(--purple3);margin-bottom:28px;letter-spacing:.04em}
+.badge-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.5)}}
+h1.hero-title{font-size:clamp(40px,7vw,84px);font-weight:900;line-height:1.05;
+  letter-spacing:-.03em;margin-bottom:24px;
+  background:linear-gradient(135deg,#fff 0%,var(--purple3) 50%,var(--cyan) 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero-sub{font-size:clamp(15px,2.2vw,20px);color:var(--text2);max-width:620px;line-height:1.7;margin-bottom:44px}
+.hero-actions{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-bottom:48px}
+.btn-primary{padding:14px 36px;border-radius:12px;background:linear-gradient(135deg,var(--purple),var(--purple2));
+  color:#fff;font-size:15px;font-weight:700;border:none;cursor:pointer;
+  box-shadow:0 0 30px rgba(138,43,226,.4);transition:.25s;text-decoration:none;display:inline-flex;align-items:center;gap:8px}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 0 50px rgba(168,85,247,.55)}
+.btn-ghost{padding:14px 32px;border-radius:12px;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.12);color:var(--text);font-size:15px;font-weight:600;
+  cursor:pointer;transition:.25s;text-decoration:none;display:inline-flex;align-items:center;gap:8px}
+.btn-ghost:hover{background:rgba(255,255,255,.09);transform:translateY(-2px)}
 
-    /* ── Hero ── */
-    .hero {
-      position:relative; z-index:1;
-      min-height: 100vh;
-      display:flex; flex-direction:column; align-items:center; justify-content:center;
-      text-align:center; padding: 100px 24px 60px;
-    }
-    .hero-badge {
-      display:inline-flex; align-items:center; gap:8px;
-      padding:6px 16px; border-radius:99px;
-      background: rgba(138,43,226,0.12);
-      border: 1px solid var(--border2);
-      font-size:12px; font-weight:600; color:var(--purple3);
-      margin-bottom:28px; letter-spacing:.04em;
-    }
-    .hero-badge-dot {
-      width:6px; height:6px; border-radius:50%;
-      background: var(--green);
-      animation: pulse 2s infinite;
-    }
-    @keyframes pulse {
-      0%,100%{ opacity:1; transform:scale(1); }
-      50%{ opacity:.5; transform:scale(1.5); }
-    }
-    .hero h1 {
-      font-size: clamp(42px,8vw,90px);
-      font-weight:900; line-height:1.05;
-      letter-spacing:-0.03em; margin-bottom:24px;
-      background: linear-gradient(135deg, #fff 0%, var(--purple3) 50%, var(--cyan) 100%);
-      -webkit-background-clip:text; -webkit-text-fill-color:transparent;
-      background-clip:text;
-    }
-    .hero-sub {
-      font-size: clamp(16px,2.5vw,22px);
-      color:var(--text2); max-width:640px;
-      line-height:1.65; margin-bottom:44px;
-    }
-    .hero-actions { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
-    .btn-primary {
-      padding:14px 32px; border-radius:12px;
-      background: linear-gradient(135deg, var(--purple), var(--purple2));
-      color:#fff; font-size:15px; font-weight:700;
-      border:none; cursor:pointer;
-      box-shadow: 0 0 30px rgba(138,43,226,0.4);
-      transition:all .25s;
-    }
-    .btn-primary:hover { transform:translateY(-2px); box-shadow:0 0 50px rgba(168,85,247,0.55); }
-    .btn-secondary {
-      padding:14px 32px; border-radius:12px;
-      background: rgba(255,255,255,0.05);
-      border: 1px solid rgba(255,255,255,0.12);
-      color:var(--text); font-size:15px; font-weight:600;
-      cursor:pointer; transition:all .25s;
-    }
-    .btn-secondary:hover { background:rgba(255,255,255,0.09); transform:translateY(-2px); }
+/* STATS BAR */
+.stats{display:flex;gap:48px;justify-content:center;flex-wrap:wrap;margin-bottom:60px;position:relative;z-index:1}
+.stat{text-align:center}
+.stat-num{font-size:28px;font-weight:900;background:linear-gradient(135deg,var(--purple2),var(--cyan));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.stat-label{font-size:12px;color:var(--text3);font-weight:500;margin-top:2px}
 
-    /* ── Demo terminal ── */
-    .hero-terminal {
-      margin-top:64px; width:100%; max-width:820px;
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius:16px;
-      overflow:hidden;
-      box-shadow: var(--glow), 0 40px 80px rgba(0,0,0,0.6);
-    }
-    .terminal-header {
-      display:flex; align-items:center; gap:8px;
-      padding:12px 18px;
-      background: rgba(255,255,255,0.03);
-      border-bottom:1px solid var(--border);
-    }
-    .terminal-dot { width:12px; height:12px; border-radius:50%; }
-    .terminal-title {
-      margin-left:8px; font-size:12px; font-weight:600;
-      color:var(--text3); font-family:'JetBrains Mono',monospace;
-    }
-    .terminal-body { padding:24px; font-family:'JetBrains Mono',monospace; font-size:13px; text-align:left; }
-    .t-comment { color:var(--text3); }
-    .t-key { color:var(--purple3); }
-    .t-str { color:var(--cyan); }
-    .t-num { color:var(--orange); }
-    .t-bool { color:var(--green); }
-    .t-bracket { color:var(--text2); }
-    .t-line { line-height:1.8; }
+/* SECTIONS */
+section{position:relative;z-index:1;padding:90px 24px}
+.container{max-width:1100px;margin:0 auto}
+.section-label{font-size:11px;font-weight:700;letter-spacing:.12em;color:var(--purple2);text-transform:uppercase;margin-bottom:12px}
+.section-title{font-size:clamp(26px,4.5vw,44px);font-weight:900;line-height:1.1;letter-spacing:-.02em;margin-bottom:16px}
+.section-sub{font-size:16px;color:var(--text2);line-height:1.7;max-width:540px}
+.alt-bg{background:var(--bg2)}
 
-    /* ── Section shared ── */
-    section { position:relative; z-index:1; padding:100px 24px; }
-    .section-label {
-      font-size:11px; font-weight:700; letter-spacing:.12em;
-      color:var(--purple2); text-transform:uppercase; margin-bottom:12px;
-    }
-    .section-title {
-      font-size: clamp(28px,5vw,48px);
-      font-weight:900; line-height:1.1; letter-spacing:-.02em;
-      margin-bottom:16px;
-    }
-    .section-sub { font-size:17px; color:var(--text2); line-height:1.65; max-width:560px; }
-    .container { max-width:1200px; margin:0 auto; }
+/* ARCHITECTURE FLOW */
+.arch-flow{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:0;margin-top:56px}
+.arch-node{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:22px 26px;
+  text-align:center;min-width:145px;transition:.3s}
+.arch-node:hover{border-color:var(--border2);box-shadow:var(--glow);transform:translateY(-3px)}
+.arch-icon{font-size:26px;margin-bottom:8px}
+.arch-label{font-size:13px;font-weight:700;color:var(--text);margin-bottom:3px}
+.arch-sub{font-size:11px;color:var(--text3)}
+.arch-arrow{padding:0 6px;color:var(--purple3);font-size:20px}
 
-    /* ── How it works ── */
-    .how-grid {
-      display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
-      gap:24px; margin-top:60px;
-    }
-    .how-card {
-      background:var(--panel);
-      border:1px solid var(--border);
-      border-radius:16px; padding:32px;
-      transition:all .3s; position:relative; overflow:hidden;
-    }
-    .how-card::before {
-      content:''; position:absolute; inset:0;
-      background:linear-gradient(135deg, rgba(138,43,226,0.06) 0%, transparent 60%);
-      opacity:0; transition:.3s;
-    }
-    .how-card:hover { border-color:var(--border2); transform:translateY(-4px); box-shadow:var(--glow); }
-    .how-card:hover::before { opacity:1; }
-    .how-num {
-      font-size:11px; font-weight:700; letter-spacing:.1em;
-      color:var(--purple3); margin-bottom:16px;
-    }
-    .how-icon {
-      width:48px; height:48px; border-radius:12px;
-      display:flex; align-items:center; justify-content:center;
-      font-size:22px; margin-bottom:20px;
-    }
-    .how-card h3 { font-size:18px; font-weight:700; margin-bottom:10px; }
-    .how-card p { font-size:14px; color:var(--text2); line-height:1.65; }
+/* FEATURE GRID */
+.feat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;margin-top:56px}
+.feat{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:28px;transition:.3s}
+.feat:hover{border-color:var(--border2);box-shadow:var(--glow);transform:translateY(-3px)}
+.feat-icon{font-size:26px;margin-bottom:14px}
+.feat h3{font-size:16px;font-weight:700;margin-bottom:8px}
+.feat p{font-size:13px;color:var(--text2);line-height:1.65}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+.tag{font-size:10px;font-weight:700;padding:3px 10px;border-radius:99px;letter-spacing:.05em;
+  background:rgba(138,43,226,.1);color:var(--purple3);border:1px solid rgba(138,43,226,.2)}
 
-    /* ── Interactive demo ── */
-    .demo-section { background: var(--bg2); }
-    .demo-container {
-      display:grid; grid-template-columns:1fr 1fr; gap:24px;
-      margin-top:56px;
-    }
-    @media(max-width:768px){ .demo-container { grid-template-columns:1fr; } }
-    .demo-input-panel, .demo-output-panel {
-      background:var(--panel); border:1px solid var(--border);
-      border-radius:16px; overflow:hidden;
-    }
-    .panel-header {
-      display:flex; align-items:center; justify-content:space-between;
-      padding:14px 20px;
-      background:rgba(255,255,255,0.025);
-      border-bottom:1px solid var(--border);
-    }
-    .panel-label {
-      font-size:11px; font-weight:700; letter-spacing:.1em;
-      color:var(--text3); text-transform:uppercase;
-    }
-    .panel-badge {
-      font-size:10px; font-weight:700; padding:3px 10px;
-      border-radius:99px; letter-spacing:.05em;
-    }
-    .badge-ai { background:rgba(168,85,247,0.15); color:var(--purple3); }
-    .badge-json { background:rgba(0,212,255,0.1); color:var(--cyan); }
-    .demo-textarea {
-      width:100%; min-height:180px; padding:20px;
-      background:transparent; border:none; outline:none; resize:vertical;
-      font-family:'Inter',sans-serif; font-size:14px; color:var(--text);
-      line-height:1.7;
-    }
-    .demo-textarea::placeholder { color:var(--text3); }
-    .demo-actions {
-      padding:14px 20px;
-      border-top:1px solid var(--border);
-      display:flex; align-items:center; justify-content:space-between; gap:12px;
-    }
-    .generate-btn {
-      flex:1; padding:11px 24px; border-radius:10px;
-      background:linear-gradient(135deg, var(--purple), var(--purple2));
-      color:#fff; font-size:14px; font-weight:700;
-      border:none; cursor:pointer;
-      box-shadow:0 0 20px rgba(138,43,226,0.35);
-      transition:all .2s;
-      display:flex; align-items:center; justify-content:center; gap:8px;
-    }
-    .generate-btn:hover { transform:translateY(-1px); box-shadow:0 0 30px rgba(168,85,247,0.5); }
-    .generate-btn:disabled { opacity:.5; cursor:not-allowed; transform:none; }
-    .demo-output {
-      padding:20px; font-family:'JetBrains Mono',monospace; font-size:12px;
-      line-height:1.8; min-height:280px; overflow-y:auto; max-height:420px;
-      white-space:pre-wrap; color:var(--text2);
-    }
-    .demo-output.empty { color:var(--text3); font-style:italic; font-family:'Inter',sans-serif; font-size:14px; }
-    .token-action { color:var(--purple3); }
-    .token-key { color:var(--cyan2); }
-    .token-string { color:var(--cyan); }
-    .token-number { color:var(--orange); }
-    .token-bracket { color:var(--text2); }
+/* INSTALL STEPS */
+.steps{display:flex;flex-direction:column;gap:16px;margin-top:52px}
+.step{display:flex;gap:20px;align-items:flex-start;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:22px}
+.step-num{width:36px;height:36px;border-radius:10px;flex-shrink:0;
+  background:linear-gradient(135deg,var(--purple),var(--purple2));
+  display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:#fff;
+  box-shadow:0 0 16px rgba(138,43,226,.4)}
+.step h3{font-size:15px;font-weight:700;margin-bottom:6px}
+.step p{font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:10px}
+.code{background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.07);border-radius:8px;
+  padding:12px 16px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--cyan);
+  overflow-x:auto;white-space:pre;line-height:1.7}
 
-    /* ── Features ── */
-    .features-grid {
-      display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr));
-      gap:20px; margin-top:60px;
-    }
-    .feature-card {
-      background:var(--panel); border:1px solid var(--border);
-      border-radius:14px; padding:28px;
-      transition:.3s;
-    }
-    .feature-card:hover { border-color:var(--border2); box-shadow:var(--glow); }
-    .feature-icon { font-size:28px; margin-bottom:16px; }
-    .feature-card h3 { font-size:16px; font-weight:700; margin-bottom:8px; }
-    .feature-card p { font-size:13px; color:var(--text2); line-height:1.65; }
-    .feature-tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:14px; }
-    .feature-tag {
-      font-size:10px; font-weight:700; padding:3px 10px;
-      border-radius:99px; letter-spacing:.05em;
-      background:rgba(138,43,226,0.12); color:var(--purple3);
-      border:1px solid rgba(138,43,226,0.2);
-    }
+/* TRANSLATOR DEMO */
+.translator-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:52px}
+@media(max-width:860px){.translator-grid{grid-template-columns:1fr}}
+.t-panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;overflow:hidden;display:flex;flex-direction:column}
+.t-header{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;
+  background:rgba(255,255,255,.025);border-bottom:1px solid var(--border)}
+.t-label{font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--text3);text-transform:uppercase}
+.t-badge{font-size:10px;font-weight:700;padding:3px 10px;border-radius:99px;letter-spacing:.05em}
+.badge-mcp{background:rgba(138,43,226,.15);color:var(--purple3)}
+.badge-exec{background:rgba(0,212,255,.1);color:var(--cyan)}
+.t-body{padding:16px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.8;
+  min-height:280px;max-height:420px;overflow-y:auto;white-space:pre-wrap;color:var(--text2);flex:1}
+.t-body.placeholder{color:var(--text3);font-style:italic;font-family:'Inter',sans-serif;font-size:13px}
+.t-footer{padding:12px 18px;border-top:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;gap:10px}
+.trans-btn{flex:1;padding:10px;border-radius:9px;
+  background:linear-gradient(135deg,var(--cyan2,#06b6d4),var(--cyan));
+  color:#000;font-size:13px;font-weight:700;border:none;cursor:pointer;
+  box-shadow:0 0 20px rgba(0,212,255,.25);transition:.2s;display:flex;align-items:center;justify-content:center;gap:6px}
+.trans-btn:hover{transform:translateY(-1px);box-shadow:0 0 30px rgba(0,212,255,.45)}
+.trans-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.copy-btn{padding:7px 14px;border-radius:7px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  color:var(--text2);font-size:11px;cursor:pointer;font-weight:600;transition:.2s;display:none}
+.copy-btn:hover{background:rgba(255,255,255,.1)}
 
-    /* ── Architecture ── */
-    .arch-section { background:var(--bg2); }
-    .arch-flow {
-      display:flex; align-items:center; justify-content:center;
-      flex-wrap:wrap; gap:0; margin-top:60px;
-    }
-    .arch-node {
-      background:var(--panel); border:1px solid var(--border);
-      border-radius:14px; padding:24px 28px; text-align:center;
-      min-width:160px; transition:.3s;
-    }
-    .arch-node:hover { border-color:var(--border2); box-shadow:var(--glow); }
-    .arch-node-icon { font-size:28px; margin-bottom:10px; }
-    .arch-node-label { font-size:13px; font-weight:700; color:var(--text); margin-bottom:4px; }
-    .arch-node-sub { font-size:11px; color:var(--text3); }
-    .arch-arrow {
-      display:flex; align-items:center; padding:0 8px; color:var(--purple3); font-size:20px;
-    }
+/* DOWNLOAD CARD */
+.dl-card{background:var(--panel);border:1px solid var(--border2);border-radius:18px;padding:40px;
+  text-align:center;position:relative;overflow:hidden;margin-top:52px}
+.dl-card::before{content:'';position:absolute;inset:0;
+  background:radial-gradient(ellipse at 50% 0%, rgba(138,43,226,.12) 0%, transparent 65%);pointer-events:none}
+.dl-card h3{font-size:26px;font-weight:900;margin-bottom:10px}
+.dl-card p{font-size:15px;color:var(--text2);margin-bottom:28px;max-width:500px;margin-left:auto;margin-right:auto}
+.dl-links{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
 
-    /* ── Setup ── */
-    .setup-steps { margin-top:56px; display:flex; flex-direction:column; gap:20px; }
-    .setup-step {
-      display:flex; gap:20px; align-items:flex-start;
-      background:var(--panel); border:1px solid var(--border);
-      border-radius:14px; padding:24px;
-    }
-    .step-num {
-      width:36px; height:36px; border-radius:10px; flex-shrink:0;
-      background:linear-gradient(135deg,var(--purple),var(--purple2));
-      display:flex; align-items:center; justify-content:center;
-      font-size:14px; font-weight:800; color:#fff;
-      box-shadow:0 0 16px rgba(138,43,226,0.4);
-    }
-    .step-content h3 { font-size:15px; font-weight:700; margin-bottom:6px; }
-    .step-content p { font-size:13px; color:var(--text2); line-height:1.6; margin-bottom:10px; }
-    .code-block {
-      background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.07);
-      border-radius:8px; padding:12px 16px;
-      font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--cyan);
-      overflow-x:auto; white-space:pre;
-    }
+/* FOOTER */
+footer{border-top:1px solid var(--border);padding:32px 40px;
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;position:relative;z-index:1}
+.footer-logo{font-weight:800;font-size:14px;color:var(--text2)}
+.footer-links{display:flex;gap:20px}
+.footer-link{font-size:13px;color:var(--text3);text-decoration:none;transition:.2s}
+.footer-link:hover{color:var(--text2)}
+.footer-copy{font-size:11px;color:var(--text3)}
 
-    /* ── CTA ── */
-    .cta-section {
-      text-align:center; padding:120px 24px;
-      background:linear-gradient(180deg,var(--bg) 0%,rgba(138,43,226,0.06) 50%,var(--bg) 100%);
-    }
-    .cta-glow {
-      position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-      width:600px; height:400px; border-radius:50%;
-      background:radial-gradient(ellipse, rgba(138,43,226,0.15) 0%, transparent 70%);
-      pointer-events:none;
-    }
-    .cta-section h2 { font-size:clamp(32px,5vw,56px); font-weight:900; margin-bottom:20px; }
-    .cta-section p { font-size:18px; color:var(--text2); margin-bottom:40px; max-width:520px; margin-left:auto; margin-right:auto; }
+/* JSON syntax */
+.jk{color:#c084fc}.js{color:#00d4ff}.jn{color:#f59e0b}.jb{color:#94a3b8}.ja{color:#10b981}
 
-    /* ── Footer ── */
-    footer {
-      border-top:1px solid var(--border);
-      padding:40px 40px;
-      display:flex; align-items:center; justify-content:space-between;
-      flex-wrap:wrap; gap:16px;
-      position:relative; z-index:1;
-    }
-    .footer-logo { font-weight:800; font-size:15px; color:var(--text2); }
-    .footer-links { display:flex; gap:24px; }
-    .footer-link { font-size:13px; color:var(--text3); text-decoration:none; transition:.2s; }
-    .footer-link:hover { color:var(--text2); }
-    .footer-copy { font-size:12px; color:var(--text3); }
+/* Spinner */
+@keyframes spin{to{transform:rotate(360deg)}}
+.spin{width:14px;height:14px;border-radius:50%;border:2px solid rgba(0,0,0,.2);border-top-color:#000;animation:spin .7s linear infinite}
 
-    /* ── Spinner ── */
-    @keyframes spin { to { transform:rotate(360deg); } }
-    .spinner {
-      width:16px; height:16px; border-radius:50%;
-      border:2px solid rgba(255,255,255,0.2);
-      border-top-color:#fff;
-      animation:spin .7s linear infinite;
-    }
-
-    /* ── Notifications ── */
-    .toast {
-      position:fixed; bottom:24px; right:24px; z-index:999;
-      padding:12px 20px; border-radius:10px;
-      font-size:13px; font-weight:600;
-      backdrop-filter:blur(12px);
-      border:1px solid; animation:slideIn .3s ease;
-      pointer-events:none;
-    }
-    @keyframes slideIn { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
-    .toast-success { background:rgba(16,185,129,0.15); border-color:rgba(16,185,129,0.3); color:#6ee7b7; }
-    .toast-error   { background:rgba(239,68,68,0.12);  border-color:rgba(239,68,68,0.25);  color:#fca5a5; }
-
-    /* ── Scrollbar ── */
-    ::-webkit-scrollbar { width:6px; height:6px; }
-    ::-webkit-scrollbar-track { background:transparent; }
-    ::-webkit-scrollbar-thumb { background:rgba(138,43,226,0.3); border-radius:99px; }
-  </style>
+/* Toast */
+.toast{position:fixed;bottom:24px;right:24px;z-index:999;padding:11px 18px;border-radius:9px;
+  font-size:13px;font-weight:600;backdrop-filter:blur(12px);border:1px solid;pointer-events:none;
+  animation:slideIn .3s ease}
+@keyframes slideIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.toast-ok{background:rgba(16,185,129,.15);border-color:rgba(16,185,129,.3);color:#6ee7b7}
+.toast-err{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.25);color:#fca5a5}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(138,43,226,.3);border-radius:99px}
+</style>
 </head>
 <body>
 
 <!-- NAV -->
 <nav>
-  <a href="#" class="nav-logo">
-    <div class="nav-logo-icon">⚡</div>
-    Unreal Assistant
-  </a>
+  <a href="#" class="logo"><div class="logo-icon">⚡</div>Unreal Assistant</a>
   <div class="nav-links">
-    <button class="nav-link" onclick="scrollTo('how')">How It Works</button>
-    <button class="nav-link" onclick="scrollTo('demo')">Live Demo</button>
-    <button class="nav-link" onclick="scrollTo('features')">Features</button>
-    <button class="nav-link" onclick="scrollTo('setup')">Setup</button>
-    <a href="#demo" class="nav-cta">Try It Free ↗</a>
+    <button class="nav-link" onclick="go('how')">How It Works</button>
+    <button class="nav-link" onclick="go('install')">Install</button>
+    <button class="nav-link" onclick="go('translator')">Translator</button>
+    <button class="nav-link" onclick="go('plugin')">Plugin Docs</button>
+    <a href="https://github.com/mkbrown261/unreal-assistant/releases" target="_blank" class="dl-btn">⬇ Download Plugin</a>
   </div>
 </nav>
 
 <!-- HERO -->
 <section class="hero">
-  <div class="hero-badge">
-    <span class="hero-badge-dot"></span>
-    AI-Powered Blueprint Generator · Powered by OpenAI
-  </div>
-  <h1>Build Unreal Blueprints<br/>with Plain English</h1>
+  <div class="badge"><span class="badge-dot"></span>Unreal Engine 5 · AI Blueprint MCP Plugin</div>
+  <h1 class="hero-title">AI Blueprints,<br/>Inside Unreal Engine</h1>
   <p class="hero-sub">
-    Describe your game logic in plain English. Unreal Assistant converts it to structured Blueprint JSON commands — ready to execute inside Unreal Engine via MCP.
+    Describe game logic in plain English. The MCP plugin runs <strong>inside your Unreal project</strong>,
+    receives AI-generated Blueprint commands, and creates fully wired, compiled Blueprints — automatically.
   </p>
   <div class="hero-actions">
-    <button class="btn-primary" onclick="document.getElementById('demo-section').scrollIntoView({behavior:'smooth'})">
-      ⚡ Generate a Blueprint
-    </button>
-    <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-secondary">
-      ⭐ View on GitHub
-    </a>
+    <a href="https://github.com/mkbrown261/unreal-assistant/releases" target="_blank" class="btn-primary">⬇ Download Plugin (.uplugin)</a>
+    <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-ghost">⭐ GitHub Source</a>
   </div>
-
-  <!-- Animated terminal preview -->
-  <div class="hero-terminal">
-    <div class="terminal-header">
-      <div class="terminal-dot" style="background:#ef4444"></div>
-      <div class="terminal-dot" style="background:#f59e0b"></div>
-      <div class="terminal-dot" style="background:#10b981"></div>
-      <span class="terminal-title">blueprint_output.json</span>
-    </div>
-    <div class="terminal-body" id="hero-terminal-body">
-      <div class="t-line"><span class="t-bracket">{</span></div>
-      <div class="t-line">  <span class="t-key">"commands"</span><span class="t-bracket">: [</span></div>
-      <div class="t-line">    <span class="t-bracket">{</span></div>
-      <div class="t-line">      <span class="t-key">"action"</span>: <span class="t-str">"create_blueprint"</span>,</div>
-      <div class="t-line">      <span class="t-key">"name"</span>: <span class="t-str">"BP_EnemyAI"</span></div>
-      <div class="t-line">    <span class="t-bracket">},</span></div>
-      <div class="t-line">    <span class="t-bracket">{</span></div>
-      <div class="t-line">      <span class="t-key">"action"</span>: <span class="t-str">"add_node"</span>,</div>
-      <div class="t-line">      <span class="t-key">"node"</span>: <span class="t-str">"Event BeginPlay"</span>,</div>
-      <div class="t-line">      <span class="t-key">"blueprint"</span>: <span class="t-str">"BP_EnemyAI"</span></div>
-      <div class="t-line">    <span class="t-bracket">},</span></div>
-      <div class="t-line">    <span class="t-bracket">{</span></div>
-      <div class="t-line">      <span class="t-key">"action"</span>: <span class="t-str">"add_node"</span>,</div>
-      <div class="t-line">      <span class="t-key">"node"</span>: <span class="t-str">"Branch"</span>,</div>
-      <div class="t-line">      <span class="t-key">"condition"</span>: <span class="t-str">"bIsPlayerInRange"</span></div>
-      <div class="t-line">    <span class="t-bracket">},</span></div>
-      <div class="t-line">    <span class="t-bracket">{</span></div>
-      <div class="t-line">      <span class="t-key">"action"</span>: <span class="t-str">"connect_nodes"</span>,</div>
-      <div class="t-line">      <span class="t-key">"from"</span>: <span class="t-str">"Event BeginPlay"</span>, <span class="t-key">"to"</span>: <span class="t-str">"Branch"</span></div>
-      <div class="t-line">    <span class="t-bracket">},</span></div>
-      <div class="t-line">    <span class="t-bracket">{</span></div>
-      <div class="t-line">      <span class="t-key">"action"</span>: <span class="t-str">"compile_blueprint"</span>,</div>
-      <div class="t-line">      <span class="t-key">"name"</span>: <span class="t-str">"BP_EnemyAI"</span></div>
-      <div class="t-line">    <span class="t-bracket">}</span></div>
-      <div class="t-line">  <span class="t-bracket">]</span></div>
-      <div class="t-line"><span class="t-bracket">}</span></div>
-    </div>
+  <div class="stats">
+    <div class="stat"><div class="stat-num">6</div><div class="stat-label">Blueprint Commands</div></div>
+    <div class="stat"><div class="stat-num">:8080</div><div class="stat-label">Unreal HTTP Server</div></div>
+    <div class="stat"><div class="stat-num">UE5</div><div class="stat-label">Compatible</div></div>
+    <div class="stat"><div class="stat-num">C++</div><div class="stat-label">Native Plugin</div></div>
   </div>
 </section>
 
 <!-- HOW IT WORKS -->
-<section id="how">
+<section id="how" class="alt-bg">
   <div class="container">
-    <div class="section-label">How It Works</div>
-    <h2 class="section-title">From English to Blueprint<br/>in Seconds</h2>
-    <p class="section-sub">Three simple steps. No Blueprint knowledge required.</p>
-    <div class="how-grid">
-      <div class="how-card">
-        <div class="how-num">STEP 01</div>
-        <div class="how-icon" style="background:rgba(168,85,247,0.12)">💬</div>
-        <h3>Describe Your Logic</h3>
-        <p>Type what you want in plain English. "When the player enters the trigger box, play a sound and open the door" — that's all it takes.</p>
+    <div class="section-label">Architecture</div>
+    <h2 class="section-title">How It All Connects</h2>
+    <p class="section-sub">The plugin runs an HTTP server <em>inside</em> Unreal. The MCP Node.js server is your bridge from AI to engine.</p>
+    <div class="arch-flow">
+      <div class="arch-node">
+        <div class="arch-icon">💬</div>
+        <div class="arch-label">Your Prompt</div>
+        <div class="arch-sub">Plain English</div>
       </div>
-      <div class="how-card">
-        <div class="how-num">STEP 02</div>
-        <div class="how-icon" style="background:rgba(0,212,255,0.1)">🧠</div>
-        <h3>AI Generates Commands</h3>
-        <p>Our AI system converts your description into a structured JSON array of Blueprint commands — nodes, connections, variables, and compilation steps.</p>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node" style="border-color:rgba(168,85,247,.4)">
+        <div class="arch-icon">🧠</div>
+        <div class="arch-label">AI (OpenAI)</div>
+        <div class="arch-sub">MCP JSON commands</div>
       </div>
-      <div class="how-card">
-        <div class="how-num">STEP 03</div>
-        <div class="how-icon" style="background:rgba(16,185,129,0.12)">⚡</div>
-        <h3>Execute in Unreal</h3>
-        <p>Feed the JSON to the MCP Server. It routes commands to the Unreal Engine plugin, which creates the Blueprint directly inside your project.</p>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node">
+        <div class="arch-icon">⚙️</div>
+        <div class="arch-label">MCP Server</div>
+        <div class="arch-sub">Node.js · :3001</div>
       </div>
-    </div>
-  </div>
-</section>
-
-<!-- LIVE DEMO -->
-<section class="demo-section" id="demo-section">
-  <div class="container">
-    <div class="section-label">Live Demo</div>
-    <h2 class="section-title">Generate Your Blueprint</h2>
-    <p class="section-sub">Describe any game mechanic and watch the AI produce executable Blueprint commands.</p>
-    <div class="demo-container">
-      <!-- Input -->
-      <div class="demo-input-panel">
-        <div class="panel-header">
-          <span class="panel-label">Your Prompt</span>
-          <span class="panel-badge badge-ai">AI Input</span>
-        </div>
-        <textarea
-          class="demo-textarea"
-          id="demo-prompt"
-          placeholder="Describe your Blueprint logic...
-
-Examples:
-• Create an enemy AI that chases the player when they get close
-• Make a door that opens when the player presses E near it
-• Build a health pickup that heals 25 HP on overlap
-• Create a jumping mechanic with double jump support"
-        ></textarea>
-        <div class="demo-actions">
-          <button class="generate-btn" id="generate-btn" onclick="generateBlueprint()">
-            <span id="btn-content">⚡ Generate Blueprint</span>
-          </button>
-        </div>
-        <!-- Quick prompts -->
-        <div style="padding:0 20px 16px; display:flex; flex-wrap:wrap; gap:8px;">
-          <button class="quick-prompt" onclick="setPrompt('Create an enemy AI that detects the player within 500 units, chases them, and plays an alert sound when detected')">Enemy AI</button>
-          <button class="quick-prompt" onclick="setPrompt('Make a door that opens smoothly when the player presses E near it, with an interaction prompt UI')">Door System</button>
-          <button class="quick-prompt" onclick="setPrompt('Build a health pickup actor that heals the player by 25 HP on overlap, then destroys itself')">Health Pickup</button>
-          <button class="quick-prompt" onclick="setPrompt('Create a checkpoint system that saves the player position and respawns them there on death')">Checkpoint</button>
-        </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node" style="border-color:rgba(0,212,255,.35)">
+        <div class="arch-icon">🎮</div>
+        <div class="arch-label">UE5 Plugin</div>
+        <div class="arch-sub">C++ · :8080</div>
       </div>
-      <!-- Output -->
-      <div class="demo-output-panel">
-        <div class="panel-header">
-          <span class="panel-label">Blueprint Commands</span>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <button id="copy-btn" onclick="copyOutput()" style="display:none;padding:4px 12px;border-radius:6px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:var(--text2);font-size:11px;cursor:pointer;font-weight:600;">Copy</button>
-            <span class="panel-badge badge-json">JSON Output</span>
-          </div>
-        </div>
-        <div class="demo-output empty" id="demo-output">
-          ← Enter a prompt and click Generate Blueprint to see the output here.
-        </div>
-        <div id="cmd-count" style="padding:10px 20px;border-top:1px solid var(--border);font-size:11px;color:var(--text3);display:none;"></div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node" style="border-color:rgba(16,185,129,.4)">
+        <div class="arch-icon">📋</div>
+        <div class="arch-label">Blueprint</div>
+        <div class="arch-sub">Compiled in-engine</div>
       </div>
     </div>
   </div>
@@ -568,150 +571,258 @@ Examples:
 <!-- FEATURES -->
 <section id="features">
   <div class="container">
-    <div class="section-label">Features</div>
-    <h2 class="section-title">Everything You Need</h2>
-    <p class="section-sub">A complete system from AI prompt to compiled Blueprint.</p>
-    <div class="features-grid">
-      <div class="feature-card">
-        <div class="feature-icon">🎯</div>
-        <h3>Smart Node Mapping</h3>
-        <p>AI automatically selects the correct Unreal node types — Event BeginPlay, Branch, Cast To, Print String, Timeline, and hundreds more.</p>
-        <div class="feature-tags"><span class="feature-tag">Event Nodes</span><span class="feature-tag">Flow Control</span><span class="feature-tag">Math Nodes</span></div>
+    <div class="section-label">Plugin Capabilities</div>
+    <h2 class="section-title">What the Plugin Does</h2>
+    <p class="section-sub">A full C++ Unreal Editor plugin that handles every step of Blueprint creation via JSON commands.</p>
+    <div class="feat-grid">
+      <div class="feat">
+        <div class="feat-icon">🌐</div>
+        <h3>HTTP Server Inside Unreal</h3>
+        <p>Plugin starts an HTTP listener on port 8080 at editor startup. Any client can POST Blueprint commands directly — no Unreal SDK needed on the caller side.</p>
+        <div class="tags"><span class="tag">HttpServerModule</span><span class="tag">:8080</span><span class="tag">Editor Plugin</span></div>
       </div>
-      <div class="feature-card">
-        <div class="feature-icon">🔗</div>
-        <h3>Automatic Pin Connection</h3>
-        <p>Every node is connected with correct execution flow. No floating nodes, no broken graphs — everything compiles on the first try.</p>
-        <div class="feature-tags"><span class="feature-tag">Exec Pins</span><span class="feature-tag">Data Pins</span><span class="feature-tag">Auto-wire</span></div>
+      <div class="feat">
+        <div class="feat-icon">📋</div>
+        <h3>Blueprint Creation</h3>
+        <p>Creates UBlueprint assets under <code>/Game/MCP/</code>, sets parent class (Actor, Character, Pawn, etc.), and registers them in the Asset Registry instantly.</p>
+        <div class="tags"><span class="tag">FKismetEditorUtilities</span><span class="tag">UBlueprint</span><span class="tag">UPackage</span></div>
       </div>
-      <div class="feature-card">
-        <div class="feature-icon">📦</div>
+      <div class="feat">
+        <div class="feat-icon">🔗</div>
+        <h3>Node Graph Editing</h3>
+        <p>Adds nodes to EventGraph by Unreal name (Event BeginPlay, Branch, Print String, AI Move To, Timeline…), positions them on the graph, and allocates default pins.</p>
+        <div class="tags"><span class="tag">UK2Node_Event</span><span class="tag">UK2Node_IfThenElse</span><span class="tag">UK2Node_CallFunction</span></div>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">📦</div>
         <h3>Variable Management</h3>
-        <p>Automatically declares and initializes Blueprint variables with correct types — Bool, Float, Int, Vector, Object Reference, and more.</p>
-        <div class="feature-tags"><span class="feature-tag">Bool</span><span class="feature-tag">Float</span><span class="feature-tag">Struct</span><span class="feature-tag">Reference</span></div>
+        <p>Adds typed member variables (Boolean, Float, Int, String, Vector, Rotator) and sets default values on the CDO via FBlueprintEditorUtils.</p>
+        <div class="tags"><span class="tag">FEdGraphPinType</span><span class="tag">CDO</span><span class="tag">AddMemberVariable</span></div>
       </div>
-      <div class="feature-card">
-        <div class="feature-icon">🖥️</div>
-        <h3>MCP Server Bridge</h3>
-        <p>Node.js MCP server routes JSON commands to Unreal Engine's HTTP endpoint. Supports batch execution and real-time feedback.</p>
-        <div class="feature-tags"><span class="feature-tag">Node.js</span><span class="feature-tag">REST API</span><span class="feature-tag">WebSocket</span></div>
+      <div class="feat">
+        <div class="feat-icon">⚡</div>
+        <h3>Auto Compile</h3>
+        <p>Calls FKismetEditorUtilities::CompileBlueprint after all commands run. Reports compile status (UpToDate / Error) back in the JSON response.</p>
+        <div class="tags"><span class="tag">CompileBlueprint</span><span class="tag">BS_UpToDate</span><span class="tag">BS_Error</span></div>
       </div>
-      <div class="feature-card">
-        <div class="feature-icon">🔌</div>
-        <h3>Unreal Plugin Included</h3>
-        <p>Complete C++ Unreal plugin with HTTP server, JSON parser, Blueprint executor, and FKismetEditorUtilities integration.</p>
-        <div class="feature-tags"><span class="feature-tag">C++ Plugin</span><span class="feature-tag">HTTP Module</span><span class="feature-tag">Kismet</span></div>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">⚡</div>
-        <h3>Instant Compilation</h3>
-        <p>Every generated Blueprint is automatically compiled. Errors are reported back to the MCP server for AI-assisted debugging.</p>
-        <div class="feature-tags"><span class="feature-tag">Auto-compile</span><span class="feature-tag">Error Feedback</span><span class="feature-tag">Hot Reload</span></div>
+      <div class="feat">
+        <div class="feat-icon">🔄</div>
+        <h3>Execution Translator</h3>
+        <p>API endpoint (<code>/api/translate</code>) normalises raw MCP JSON into clean Blueprint Manager format — explicit fields, canonical node names, guaranteed unique IDs, compile step last.</p>
+        <div class="tags"><span class="tag">POST /api/translate</span><span class="tag">Node normalisation</span><span class="tag">Pin mapping</span></div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ARCHITECTURE -->
-<section class="arch-section" id="architecture">
-  <div class="container" style="text-align:center;">
-    <div class="section-label">Architecture</div>
-    <h2 class="section-title">How The System Connects</h2>
-    <p class="section-sub" style="margin:0 auto 24px;">A clean three-layer architecture — AI brain, MCP bridge, Unreal engine.</p>
-    <div class="arch-flow">
-      <div class="arch-node">
-        <div class="arch-node-icon">💬</div>
-        <div class="arch-node-label">Your Prompt</div>
-        <div class="arch-node-sub">Plain English</div>
-      </div>
-      <div class="arch-arrow">→</div>
-      <div class="arch-node" style="border-color:rgba(168,85,247,0.4);">
-        <div class="arch-node-icon">🧠</div>
-        <div class="arch-node-label">AI (OpenAI)</div>
-        <div class="arch-node-sub">GPT-4o · JSON output</div>
-      </div>
-      <div class="arch-arrow">→</div>
-      <div class="arch-node">
-        <div class="arch-node-icon">⚙️</div>
-        <div class="arch-node-label">MCP Server</div>
-        <div class="arch-node-sub">Node.js · Port 3001</div>
-      </div>
-      <div class="arch-arrow">→</div>
-      <div class="arch-node" style="border-color:rgba(0,212,255,0.3);">
-        <div class="arch-node-icon">🎮</div>
-        <div class="arch-node-label">Unreal Plugin</div>
-        <div class="arch-node-sub">C++ · Port 8080</div>
-      </div>
-      <div class="arch-arrow">→</div>
-      <div class="arch-node" style="border-color:rgba(16,185,129,0.4);">
-        <div class="arch-node-icon">📋</div>
-        <div class="arch-node-label">Blueprint</div>
-        <div class="arch-node-sub">Compiled & Ready</div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- SETUP -->
-<section id="setup">
+<!-- INSTALL -->
+<section id="install" class="alt-bg">
   <div class="container">
-    <div class="section-label">Setup Guide</div>
-    <h2 class="section-title">Get Running in Minutes</h2>
-    <p class="section-sub">Three components to install and you're ready to generate Blueprints from AI.</p>
-    <div class="setup-steps">
-      <div class="setup-step">
+    <div class="section-label">Installation</div>
+    <h2 class="section-title">Get Running in 3 Steps</h2>
+    <p class="section-sub">Install the Unreal plugin, run the MCP server, and start generating Blueprints from your AI prompts.</p>
+    <div class="steps">
+      <div class="step">
         <div class="step-num">1</div>
-        <div class="step-content">
-          <h3>Clone & Install MCP Server</h3>
-          <p>Clone the repository and install the Node.js MCP server that bridges AI output to Unreal Engine.</p>
-          <div class="code-block">git clone https://github.com/mkbrown261/unreal-assistant
+        <div>
+          <h3>Install the UE5 Plugin</h3>
+          <p>Copy the <code>MCPBlueprint</code> folder into your Unreal project's Plugins directory, then enable it in the Plugin Manager and restart the editor. The plugin auto-starts its HTTP server on port 8080.</p>
+          <div class="code">cp -r MCPBlueprint/  YourProject/Plugins/MCPBlueprint/
+# Inside Unreal Editor:
+# Edit → Plugins → search "MCPBlueprint" → Enable → Restart Editor
+# Check Output Log for: [MCPBlueprint] MCP HTTP server ready → POST http://localhost:8080/unreal/execute</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div>
+          <h3>Start the MCP Node.js Server</h3>
+          <p>The MCP server bridges your AI calls to the Unreal plugin. Clone this repo, install dependencies, set your OpenAI key, and run it.</p>
+          <div class="code">git clone https://github.com/mkbrown261/unreal-assistant
 cd unreal-assistant/mcp-server
 npm install
-OPENAI_API_KEY=sk-... node server.js</div>
-        </div>
-      </div>
-      <div class="setup-step">
-        <div class="step-num">2</div>
-        <div class="step-content">
-          <h3>Install Unreal Engine Plugin</h3>
-          <p>Copy the MCPBlueprint plugin into your Unreal project's Plugins folder and enable it in the Plugin Manager.</p>
-          <div class="code-block">cp -r MCPBlueprintPlugin/ YourProject/Plugins/MCPBlueprint
-# Open Unreal Engine
-# Edit → Plugins → Search "MCPBlueprint" → Enable → Restart</div>
-        </div>
-      </div>
-      <div class="setup-step">
-        <div class="step-num">3</div>
-        <div class="step-content">
-          <h3>Configure & Generate</h3>
-          <p>Add your OpenAI API key, start both servers, then describe your Blueprint logic in the web interface above.</p>
-          <div class="code-block"># .env
-OPENAI_API_KEY=sk-your-key-here
-UNREAL_HOST=http://localhost:8080
 
-# MCP Server starts on :3001
-# Unreal plugin listens on :8080
-# Web interface at https://unreal-assistant.pages.dev</div>
+# Create .env
+echo "OPENAI_API_KEY=sk-your-key" > .env
+echo "UNREAL_HOST=http://localhost:8080" >> .env
+
+node server.js
+# → MCP Server running on http://localhost:3001
+# → POST /api/blueprint/generate   (AI → Blueprint JSON)
+# → POST /api/blueprint/execute    (send commands to Unreal)</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div>
+          <h3>Generate a Blueprint</h3>
+          <p>Call the MCP server with a plain English prompt. It generates Blueprint commands via AI, translates them to Unreal format, and executes them inside your running editor.</p>
+          <div class="code"># Generate + execute in one call (set execute: true to push straight to Unreal)
+curl -X POST http://localhost:3001/api/blueprint/generate \\
+  -H "Content-Type: application/json" \\
+  -d '{"prompt":"Create an enemy AI that chases the player","execute":true}'
+
+# Or translate raw MCP JSON to clean Blueprint Manager format:
+curl -X POST https://unreal-assistant.pages.dev/api/translate \\
+  -H "Content-Type: application/json" \\
+  -d '{"commands":[{"action":"create_blueprint","name":"BP_Enemy","parent_class":"Character"},...]}' </div>
         </div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- CTA -->
-<section class="cta-section" style="position:relative;">
-  <div class="cta-glow"></div>
-  <div style="position:relative;z-index:1;">
-    <div class="section-label" style="margin-bottom:16px;">Get Started Today</div>
-    <h2>Start Building Smarter<br/>Blueprints Now</h2>
-    <p>No Blueprint expertise required. Just describe what you want and let AI do the rest.</p>
-    <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;">
-      <button class="btn-primary" onclick="document.getElementById('demo-section').scrollIntoView({behavior:'smooth'})">
-        ⚡ Try the Demo
-      </button>
-      <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-secondary">
-        View Source on GitHub
-      </a>
+<!-- TRANSLATOR DEMO -->
+<section id="translator">
+  <div class="container">
+    <div class="section-label">Blueprint Execution Translator</div>
+    <h2 class="section-title">MCP JSON → Executable Format</h2>
+    <p class="section-sub">
+      Paste raw MCP Blueprint commands on the left. The translator normalises node names, assigns unique IDs,
+      makes all fields explicit, and ensures <code>compile_blueprint</code> always runs last — ready for <code>POST /unreal/execute</code>.
+    </p>
+    <div class="translator-grid">
+      <div class="t-panel">
+        <div class="t-header">
+          <span class="t-label">Raw MCP Input</span>
+          <span class="t-badge badge-mcp">MCP JSON</span>
+        </div>
+        <textarea id="t-input" class="t-body" style="resize:none;outline:none;border:none;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.8;background:transparent;color:var(--text2)" placeholder='Paste raw MCP commands here, e.g.:
+{
+  "commands": [
+    {
+      "action": "create_blueprint",
+      "name": "BP_Enemy",
+      "parent_class": "Character"
+    },
+    {
+      "action": "add_node",
+      "blueprint": "BP_Enemy",
+      "node": "event beginplay",
+      "id": "node_0",
+      "x": 0,
+      "y": 0
+    },
+    {
+      "action": "connect_nodes",
+      "blueprint": "BP_Enemy",
+      "from_node": "node_0",
+      "from_pin": "then",
+      "to_node": "node_1",
+      "to_pin": "exec"
+    },
+    {
+      "action": "compile_blueprint",
+      "name": "BP_Enemy"
+    }
+  ]
+}'></textarea>
+        <div class="t-footer">
+          <button class="trans-btn" id="trans-btn" onclick="runTranslate()">
+            <span id="trans-content">🔄 Translate</span>
+          </button>
+          <button class="copy-btn" id="copy-input-btn" onclick="copyInput()">Copy Input</button>
+        </div>
+      </div>
+      <div class="t-panel">
+        <div class="t-header">
+          <span class="t-label">Executable Output</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button class="copy-btn" id="copy-out-btn" onclick="copyOutput()">Copy</button>
+            <span class="t-badge badge-exec">Blueprint Manager JSON</span>
+          </div>
+        </div>
+        <div class="t-body placeholder" id="t-output">← Paste MCP JSON and click Translate to see the normalised executable format.</div>
+        <div id="t-meta" style="padding:10px 18px;border-top:1px solid var(--border);font-size:11px;color:var(--text3);display:none"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PLUGIN DOCS -->
+<section id="plugin" class="alt-bg">
+  <div class="container">
+    <div class="section-label">Plugin Reference</div>
+    <h2 class="section-title">Command Schema</h2>
+    <p class="section-sub">All six commands the Unreal plugin understands. POST to <code>http://localhost:8080/unreal/execute</code> with a <code>commands</code> array.</p>
+    <div class="feat-grid" style="margin-top:40px">
+      <div class="feat">
+        <div class="feat-icon">📦</div>
+        <h3>create_blueprint</h3>
+        <div class="code" style="margin-top:10px;font-size:11px">{
+  "action": "create_blueprint",
+  "name": "BP_MyActor",
+  "parent_class": "Actor"
+}</div>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">➕</div>
+        <h3>add_node</h3>
+        <div class="code" style="margin-top:10px;font-size:11px">{
+  "action": "add_node",
+  "blueprint": "BP_MyActor",
+  "node": "Event BeginPlay",
+  "id": "node_0",
+  "x": 0, "y": 0
+}</div>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">🔗</div>
+        <h3>connect_nodes</h3>
+        <div class="code" style="margin-top:10px;font-size:11px">{
+  "action": "connect_nodes",
+  "blueprint": "BP_MyActor",
+  "from_node": "node_0",
+  "from_pin": "Then",
+  "to_node": "node_1",
+  "to_pin": "Execute"
+}</div>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">📋</div>
+        <h3>add_variable</h3>
+        <div class="code" style="margin-top:10px;font-size:11px">{
+  "action": "add_variable",
+  "blueprint": "BP_MyActor",
+  "variable_name": "Health",
+  "variable_type": "Float",
+  "default_value": 100.0
+}</div>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">✏️</div>
+        <h3>set_variable</h3>
+        <div class="code" style="margin-top:10px;font-size:11px">{
+  "action": "set_variable",
+  "blueprint": "BP_MyActor",
+  "variable_name": "Health",
+  "value": "75"
+}</div>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">⚡</div>
+        <h3>compile_blueprint</h3>
+        <div class="code" style="margin-top:10px;font-size:11px">{
+  "action": "compile_blueprint",
+  "name": "BP_MyActor"
+}</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DOWNLOAD -->
+<section>
+  <div class="container">
+    <div class="dl-card">
+      <div style="font-size:48px;margin-bottom:16px">⬇</div>
+      <h3>Download the Plugin</h3>
+      <p>Get the complete MCPBlueprint Unreal Engine 5 plugin — C++ source, .uplugin, Build.cs, and all headers included. MIT licensed and open source.</p>
+      <div class="dl-links">
+        <a href="https://github.com/mkbrown261/unreal-assistant/releases" target="_blank" class="btn-primary">⬇ Download Latest Release</a>
+        <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-ghost">⭐ View Source on GitHub</a>
+      </div>
+      <p style="margin-top:20px;font-size:12px;color:var(--text3)">Unreal Engine 5.1+ · C++17 · MIT License · No marketplace account required</p>
     </div>
   </div>
 </section>
@@ -721,342 +832,113 @@ UNREAL_HOST=http://localhost:8080
   <div class="footer-logo">⚡ Unreal Assistant</div>
   <div class="footer-links">
     <a class="footer-link" href="https://github.com/mkbrown261/unreal-assistant" target="_blank">GitHub</a>
-    <a class="footer-link" href="#how">Docs</a>
-    <a class="footer-link" href="#demo-section">Demo</a>
+    <a class="footer-link" href="https://github.com/mkbrown261/unreal-assistant/releases" target="_blank">Releases</a>
+    <a class="footer-link" href="#plugin">Docs</a>
+    <a class="footer-link" href="#translator">Translator</a>
   </div>
-  <div class="footer-copy">© 2025 Unreal Assistant · Built with Hono + Cloudflare Pages</div>
+  <div class="footer-copy">© 2025 Unreal Assistant · Hono + Cloudflare Pages</div>
 </footer>
 
-<style>
-.quick-prompt {
-  font-size:11px; font-weight:600; padding:5px 12px; border-radius:99px;
-  background:rgba(138,43,226,0.1); border:1px solid rgba(138,43,226,0.2);
-  color:var(--purple3); cursor:pointer; transition:.2s;
-}
-.quick-prompt:hover { background:rgba(138,43,226,0.2); }
-</style>
-
 <script>
-function scrollTo(id) {
-  document.getElementById(id)?.scrollIntoView({behavior:'smooth'});
-}
+function go(id){ document.getElementById(id)?.scrollIntoView({behavior:'smooth'}) }
 
-function setPrompt(text) {
-  document.getElementById('demo-prompt').value = text;
-  document.getElementById('demo-prompt').focus();
-}
+// ── Translator ──────────────────────────────────────────────────────────────
+let lastTranslated = ''
 
-let lastOutput = '';
+async function runTranslate() {
+  const raw = document.getElementById('t-input').value.trim()
+  if (!raw) { toast('Paste MCP JSON first', 'err'); return }
 
-async function generateBlueprint() {
-  const prompt = document.getElementById('demo-prompt').value.trim();
-  if (!prompt) { showToast('Please enter a prompt first', 'error'); return; }
+  let parsed
+  try { parsed = JSON.parse(raw) } catch { toast('Invalid JSON — check your input', 'err'); return }
 
-  const btn = document.getElementById('generate-btn');
-  const btnContent = document.getElementById('btn-content');
-  const output = document.getElementById('demo-output');
-  const copyBtn = document.getElementById('copy-btn');
-  const cmdCount = document.getElementById('cmd-count');
+  const commands = parsed.commands || (Array.isArray(parsed) ? parsed : null)
+  if (!commands) { toast("Input must have a \\"commands\\" array", 'err'); return }
 
-  btn.disabled = true;
-  btnContent.innerHTML = '<div class="spinner"></div> Generating…';
-  output.className = 'demo-output';
-  output.innerHTML = '<span style="color:var(--text3);font-family:Inter,sans-serif;font-style:italic">Thinking…</span>';
-  copyBtn.style.display = 'none';
-  cmdCount.style.display = 'none';
+  const btn = document.getElementById('trans-btn')
+  const content = document.getElementById('trans-content')
+  const out = document.getElementById('t-output')
+  const meta = document.getElementById('t-meta')
+  const copyOut = document.getElementById('copy-out-btn')
+
+  btn.disabled = true
+  content.innerHTML = '<div class="spin"></div> Translating…'
+  out.className = 't-body'
+  out.textContent = 'Translating…'
+  copyOut.style.display = 'none'
+  meta.style.display = 'none'
 
   try {
-    const res = await fetch('/api/generate', {
+    const res = await fetch('/api/translate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt })
-    });
+      body: JSON.stringify({ commands })
+    })
+    const data = await res.json()
+    if (!res.ok || data.error) throw new Error(data.error || 'Translate failed')
 
-    const data = await res.json();
+    lastTranslated = JSON.stringify({ translated: data.translated }, null, 2)
+    out.className = 't-body'
+    out.innerHTML = syntaxHL(lastTranslated)
+    copyOut.style.display = 'block'
 
-    if (!res.ok || data.error) {
-      throw new Error(data.error || 'Generation failed');
-    }
-
-    lastOutput = JSON.stringify(data.commands || data, null, 2);
-    output.className = 'demo-output';
-    output.innerHTML = syntaxHighlight(lastOutput);
-    copyBtn.style.display = 'block';
-
-    const count = (data.commands || []).length;
-    if (count > 0) {
-      cmdCount.style.display = 'block';
-      cmdCount.innerHTML = '✓ ' + count + ' command' + (count!==1?'s':'') + ' generated · Ready to execute in Unreal Engine';
-    }
-
-    showToast('Blueprint generated! ' + count + ' commands ready.', 'success');
+    meta.style.display = 'block'
+    meta.textContent = '✓ ' + data.meta.input_count + ' commands in → ' + data.meta.output_count + ' translated · ready for POST /unreal/execute'
+    toast('Translated ' + data.meta.output_count + ' commands', 'ok')
   } catch(e) {
-    output.className = 'demo-output empty';
-    output.textContent = '✕ Error: ' + e.message;
-    showToast(e.message, 'error');
+    out.className = 't-body placeholder'
+    out.textContent = '✕ ' + e.message
+    toast(e.message, 'err')
   } finally {
-    btn.disabled = false;
-    btnContent.innerHTML = '⚡ Generate Blueprint';
+    btn.disabled = false
+    content.textContent = '🔄 Translate'
   }
 }
 
-function syntaxHighlight(json) {
-  return json
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function(match) {
-      let cls = 'token-number';
-      if (/^"/.test(match)) {
-        if (/:$/.test(match)) {
-          const key = match.replace(/"/g,'').replace(':','');
-          cls = key === 'action' ? 'token-action' : 'token-key';
-        } else {
-          cls = 'token-string';
-        }
-      } else if (/true|false/.test(match)) {
-        cls = 'token-bracket';
-      }
-      return '<span class="' + cls + '">' + match + '</span>';
-    })
-    .replace(/([{}\[\]])/g, '<span class="token-bracket">$1</span>');
+function copyInput() {
+  const v = document.getElementById('t-input').value
+  if (!v) return
+  navigator.clipboard.writeText(v).then(() => toast('Input copied!', 'ok'))
 }
 
 function copyOutput() {
-  if (!lastOutput) return;
-  navigator.clipboard.writeText(lastOutput).then(() => {
-    showToast('Copied to clipboard!', 'success');
-    document.getElementById('copy-btn').textContent = 'Copied!';
-    setTimeout(() => document.getElementById('copy-btn').textContent = 'Copy', 1800);
-  });
+  if (!lastTranslated) return
+  navigator.clipboard.writeText(lastTranslated).then(() => {
+    toast('Copied!', 'ok')
+    const btn = document.getElementById('copy-out-btn')
+    btn.textContent = 'Copied!'
+    setTimeout(() => btn.textContent = 'Copy', 1800)
+  })
 }
 
-function showToast(msg, type) {
-  const t = document.createElement('div');
-  t.className = 'toast toast-' + type;
-  t.textContent = msg;
-  document.body.appendChild(t);
-  setTimeout(() => t.remove(), 3200);
+// ── JSON syntax highlight ───────────────────────────────────────────────────
+function syntaxHL(json) {
+  return json
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/("(\\\\u[a-zA-Z0-9]{4}|\\\\[^u]|[^\\\\"])*"(\\s*:)?|\\b(true|false|null)\\b|-?\\d+(?:\\.\\d*)?(?:[eE][+\\-]?\\d+)?)/g, m => {
+      let cls = 'jn'
+      if (/^"/.test(m)) {
+        if (/:$/.test(m)) {
+          const k = m.replace(/"/g,'').replace(':','').trim()
+          cls = k === 'action' ? 'ja' : 'jk'
+        } else cls = 'js'
+      } else if (/true|false/.test(m)) cls = 'jb'
+      return '<span class="'+cls+'">'+m+'</span>'
+    })
+    .replace(/([{}\\[\\]])/g,'<span class="jb">$1</span>')
 }
 
-// Enter key to generate
-document.getElementById('demo-prompt').addEventListener('keydown', function(e) {
-  if (e.ctrlKey && e.key === 'Enter') generateBlueprint();
-});
+// ── Toast ───────────────────────────────────────────────────────────────────
+function toast(msg, type) {
+  const t = document.createElement('div')
+  t.className = 'toast toast-' + (type === 'ok' ? 'ok' : 'err')
+  t.textContent = msg
+  document.body.appendChild(t)
+  setTimeout(() => t.remove(), 3000)
+}
 </script>
 
 </body>
-</html>`)
-})
-
-// ── Blueprint generation API ──────────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are an Unreal Engine Blueprint Generation System.
-
-Your job is to convert user intent into structured executable commands for Unreal Engine via MCP.
-
-You DO NOT explain.
-You DO NOT give tutorials.
-You ONLY output structured JSON.
-
-You must think like a Blueprint system:
-- Everything is nodes
-- Everything is execution flow
-- All logic must be connected
-
-AVAILABLE COMMANDS:
-1. create_blueprint
-2. add_node
-3. connect_nodes
-4. set_variable
-5. add_variable
-6. compile_blueprint
-
-RULES:
-- Always create blueprint first
-- Always use valid Unreal node names (Event BeginPlay, Event Tick, Event ActorBeginOverlap, Print String, Branch, Cast To, Set, Get, Sequence, Timeline, Delay, etc.)
-- Always connect execution flow (no floating nodes)
-- Break logic into clear sequential steps
-- Always end with compile_blueprint
-- Use consistent blueprint naming (BP_<Name>)
-- Avoid ambiguity
-- Add variables with add_variable before using them with set_variable
-- Include position hints (x, y) on nodes for clean graph layout
-
-OUTPUT FORMAT - return ONLY valid JSON, no markdown, no explanation:
-{
-  "commands": [
-    {
-      "action": "create_blueprint",
-      "name": "BP_ExampleName",
-      "parent_class": "Actor"
-    },
-    {
-      "action": "add_variable",
-      "blueprint": "BP_ExampleName",
-      "variable_name": "bIsActive",
-      "variable_type": "Boolean",
-      "default_value": false
-    },
-    {
-      "action": "add_node",
-      "blueprint": "BP_ExampleName",
-      "node": "Event BeginPlay",
-      "id": "node_0",
-      "x": 0,
-      "y": 0
-    },
-    {
-      "action": "connect_nodes",
-      "blueprint": "BP_ExampleName",
-      "from_node": "node_0",
-      "from_pin": "Then",
-      "to_node": "node_1",
-      "to_pin": "Execute"
-    },
-    {
-      "action": "compile_blueprint",
-      "name": "BP_ExampleName"
-    }
-  ]
-}`;
-
-app.post('/api/generate', async (c) => {
-  const apiKey = c.env.OPENAI_API_KEY
-  if (!apiKey) {
-    // Return a demo response when no API key is configured
-    return c.json(getDemoResponse(await c.req.json().then(b => b.prompt || '').catch(() => '')))
-  }
-
-  let body: { prompt?: string }
-  try { body = await c.req.json() } catch { return c.json({ error: 'Invalid JSON body' }, 400) }
-  if (!body.prompt?.trim()) return c.json({ error: 'prompt is required' }, 400)
-
-  try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o',
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: body.prompt.trim() }
-        ],
-        max_tokens: 2000,
-        temperature: 0.3,
-      })
-    })
-
-    if (!res.ok) {
-      const err = await res.text()
-      return c.json({ error: `OpenAI error: ${res.status}` }, 502)
-    }
-
-    const data = await res.json() as any
-    const content = data.choices?.[0]?.message?.content
-    if (!content) return c.json({ error: 'No content from AI' }, 502)
-
-    const parsed = JSON.parse(content)
-    return c.json(parsed)
-  } catch (e: any) {
-    return c.json({ error: e.message || 'Generation failed' }, 500)
-  }
-})
-
-// ── Demo response (no API key) ───────────────────────────────────────────────
-function getDemoResponse(prompt: string) {
-  const lower = prompt.toLowerCase()
-  const isEnemy = lower.includes('enemy') || lower.includes('ai') || lower.includes('chase')
-  const isDoor  = lower.includes('door')  || lower.includes('open')
-  const isHealth = lower.includes('health') || lower.includes('heal') || lower.includes('pickup')
-
-  if (isEnemy) return {
-    commands: [
-      { action: 'create_blueprint', name: 'BP_EnemyAI', parent_class: 'Character' },
-      { action: 'add_variable', blueprint: 'BP_EnemyAI', variable_name: 'bIsPlayerInRange', variable_type: 'Boolean', default_value: false },
-      { action: 'add_variable', blueprint: 'BP_EnemyAI', variable_name: 'DetectionRadius', variable_type: 'Float', default_value: 500.0 },
-      { action: 'add_variable', blueprint: 'BP_EnemyAI', variable_name: 'ChaseSpeed', variable_type: 'Float', default_value: 300.0 },
-      { action: 'add_node', blueprint: 'BP_EnemyAI', node: 'Event BeginPlay', id: 'node_0', x: 0, y: 0 },
-      { action: 'add_node', blueprint: 'BP_EnemyAI', node: 'Print String', id: 'node_1', x: 300, y: 0, params: { InString: 'Enemy AI Initialized' } },
-      { action: 'add_node', blueprint: 'BP_EnemyAI', node: 'Event Tick', id: 'node_2', x: 0, y: 300 },
-      { action: 'add_node', blueprint: 'BP_EnemyAI', node: 'Get Player Pawn', id: 'node_3', x: 200, y: 400 },
-      { action: 'add_node', blueprint: 'BP_EnemyAI', node: 'Get Distance To', id: 'node_4', x: 450, y: 350 },
-      { action: 'add_node', blueprint: 'BP_EnemyAI', node: 'Branch', id: 'node_5', x: 700, y: 300, condition: 'Distance <= DetectionRadius' },
-      { action: 'add_node', blueprint: 'BP_EnemyAI', node: 'AI Move To', id: 'node_6', x: 950, y: 200, params: { GoalActor: 'PlayerPawn' } },
-      { action: 'add_node', blueprint: 'BP_EnemyAI', node: 'Set', id: 'node_7', x: 950, y: 380, variable: 'bIsPlayerInRange', value: false },
-      { action: 'connect_nodes', blueprint: 'BP_EnemyAI', from_node: 'node_0', from_pin: 'Then', to_node: 'node_1', to_pin: 'Execute' },
-      { action: 'connect_nodes', blueprint: 'BP_EnemyAI', from_node: 'node_2', from_pin: 'Then', to_node: 'node_5', to_pin: 'Execute' },
-      { action: 'connect_nodes', blueprint: 'BP_EnemyAI', from_node: 'node_5', from_pin: 'True', to_node: 'node_6', to_pin: 'Execute' },
-      { action: 'connect_nodes', blueprint: 'BP_EnemyAI', from_node: 'node_5', from_pin: 'False', to_node: 'node_7', to_pin: 'Execute' },
-      { action: 'compile_blueprint', name: 'BP_EnemyAI' }
-    ]
-  }
-
-  if (isDoor) return {
-    commands: [
-      { action: 'create_blueprint', name: 'BP_InteractiveDoor', parent_class: 'Actor' },
-      { action: 'add_variable', blueprint: 'BP_InteractiveDoor', variable_name: 'bIsOpen', variable_type: 'Boolean', default_value: false },
-      { action: 'add_variable', blueprint: 'BP_InteractiveDoor', variable_name: 'bPlayerNearby', variable_type: 'Boolean', default_value: false },
-      { action: 'add_variable', blueprint: 'BP_InteractiveDoor', variable_name: 'OpenAngle', variable_type: 'Float', default_value: 90.0 },
-      { action: 'add_node', blueprint: 'BP_InteractiveDoor', node: 'Event ActorBeginOverlap', id: 'node_0', x: 0, y: 0 },
-      { action: 'add_node', blueprint: 'BP_InteractiveDoor', node: 'Set', id: 'node_1', x: 280, y: 0, variable: 'bPlayerNearby', value: true },
-      { action: 'add_node', blueprint: 'BP_InteractiveDoor', node: 'Print String', id: 'node_2', x: 480, y: 0, params: { InString: 'Press E to Open' } },
-      { action: 'add_node', blueprint: 'BP_InteractiveDoor', node: 'Event ActorEndOverlap', id: 'node_3', x: 0, y: 220 },
-      { action: 'add_node', blueprint: 'BP_InteractiveDoor', node: 'Set', id: 'node_4', x: 280, y: 220, variable: 'bPlayerNearby', value: false },
-      { action: 'add_node', blueprint: 'BP_InteractiveDoor', node: 'InputAction IE_Interact', id: 'node_5', x: 0, y: 440 },
-      { action: 'add_node', blueprint: 'BP_InteractiveDoor', node: 'Branch', id: 'node_6', x: 280, y: 440, condition: 'bPlayerNearby' },
-      { action: 'add_node', blueprint: 'BP_InteractiveDoor', node: 'Branch', id: 'node_7', x: 520, y: 440, condition: 'bIsOpen' },
-      { action: 'add_node', blueprint: 'BP_InteractiveDoor', node: 'Timeline', id: 'node_8', x: 760, y: 360, params: { name: 'DoorTimeline', length: 1.0 } },
-      { action: 'connect_nodes', blueprint: 'BP_InteractiveDoor', from_node: 'node_0', from_pin: 'Then', to_node: 'node_1', to_pin: 'Execute' },
-      { action: 'connect_nodes', blueprint: 'BP_InteractiveDoor', from_node: 'node_1', from_pin: 'Then', to_node: 'node_2', to_pin: 'Execute' },
-      { action: 'connect_nodes', blueprint: 'BP_InteractiveDoor', from_node: 'node_3', from_pin: 'Then', to_node: 'node_4', to_pin: 'Execute' },
-      { action: 'connect_nodes', blueprint: 'BP_InteractiveDoor', from_node: 'node_5', from_pin: 'Pressed', to_node: 'node_6', to_pin: 'Execute' },
-      { action: 'connect_nodes', blueprint: 'BP_InteractiveDoor', from_node: 'node_6', from_pin: 'True', to_node: 'node_7', to_pin: 'Execute' },
-      { action: 'connect_nodes', blueprint: 'BP_InteractiveDoor', from_node: 'node_7', from_pin: 'False', to_node: 'node_8', to_pin: 'Play' },
-      { action: 'compile_blueprint', name: 'BP_InteractiveDoor' }
-    ]
-  }
-
-  if (isHealth) return {
-    commands: [
-      { action: 'create_blueprint', name: 'BP_HealthPickup', parent_class: 'Actor' },
-      { action: 'add_variable', blueprint: 'BP_HealthPickup', variable_name: 'HealAmount', variable_type: 'Float', default_value: 25.0 },
-      { action: 'add_variable', blueprint: 'BP_HealthPickup', variable_name: 'bPickedUp', variable_type: 'Boolean', default_value: false },
-      { action: 'add_node', blueprint: 'BP_HealthPickup', node: 'Event ActorBeginOverlap', id: 'node_0', x: 0, y: 0 },
-      { action: 'add_node', blueprint: 'BP_HealthPickup', node: 'Branch', id: 'node_1', x: 280, y: 0, condition: 'NOT bPickedUp' },
-      { action: 'add_node', blueprint: 'BP_HealthPickup', node: 'Cast To Character', id: 'node_2', x: 520, y: 0 },
-      { action: 'add_node', blueprint: 'BP_HealthPickup', node: 'Call Function: ApplyHeal', id: 'node_3', x: 760, y: 0, params: { Amount: 'HealAmount' } },
-      { action: 'add_node', blueprint: 'BP_HealthPickup', node: 'Set', id: 'node_4', x: 1000, y: 0, variable: 'bPickedUp', value: true },
-      { action: 'add_node', blueprint: 'BP_HealthPickup', node: 'Play Sound at Location', id: 'node_5', x: 1000, y: 150, params: { Sound: 'S_PickupSound' } },
-      { action: 'add_node', blueprint: 'BP_HealthPickup', node: 'Spawn Emitter at Location', id: 'node_6', x: 1000, y: 280, params: { Template: 'PS_PickupEffect' } },
-      { action: 'add_node', blueprint: 'BP_HealthPickup', node: 'Destroy Actor', id: 'node_7', x: 1200, y: 0 },
-      { action: 'connect_nodes', blueprint: 'BP_HealthPickup', from_node: 'node_0', from_pin: 'Then', to_node: 'node_1', to_pin: 'Execute' },
-      { action: 'connect_nodes', blueprint: 'BP_HealthPickup', from_node: 'node_1', from_pin: 'True', to_node: 'node_2', to_pin: 'Execute' },
-      { action: 'connect_nodes', blueprint: 'BP_HealthPickup', from_node: 'node_2', from_pin: 'Then', to_node: 'node_3', to_pin: 'Execute' },
-      { action: 'connect_nodes', blueprint: 'BP_HealthPickup', from_node: 'node_3', from_pin: 'Then', to_node: 'node_4', to_pin: 'Execute' },
-      { action: 'connect_nodes', blueprint: 'BP_HealthPickup', from_node: 'node_4', from_pin: 'Then', to_node: 'node_5', to_pin: 'Execute' },
-      { action: 'connect_nodes', blueprint: 'BP_HealthPickup', from_node: 'node_5', from_pin: 'Then', to_node: 'node_7', to_pin: 'Execute' },
-      { action: 'compile_blueprint', name: 'BP_HealthPickup' }
-    ]
-  }
-
-  // Generic default response
-  return {
-    commands: [
-      { action: 'create_blueprint', name: 'BP_CustomActor', parent_class: 'Actor' },
-      { action: 'add_variable', blueprint: 'BP_CustomActor', variable_name: 'bIsActive', variable_type: 'Boolean', default_value: true },
-      { action: 'add_variable', blueprint: 'BP_CustomActor', variable_name: 'DebugMessage', variable_type: 'String', default_value: 'Actor Started' },
-      { action: 'add_node', blueprint: 'BP_CustomActor', node: 'Event BeginPlay', id: 'node_0', x: 0, y: 0 },
-      { action: 'add_node', blueprint: 'BP_CustomActor', node: 'Branch', id: 'node_1', x: 280, y: 0, condition: 'bIsActive' },
-      { action: 'add_node', blueprint: 'BP_CustomActor', node: 'Print String', id: 'node_2', x: 520, y: -80, params: { InString: 'DebugMessage', Duration: 5.0, TextColor: 'Green' } },
-      { action: 'add_node', blueprint: 'BP_CustomActor', node: 'Print String', id: 'node_3', x: 520, y: 80, params: { InString: 'Actor is Inactive', Duration: 5.0, TextColor: 'Red' } },
-      { action: 'connect_nodes', blueprint: 'BP_CustomActor', from_node: 'node_0', from_pin: 'Then', to_node: 'node_1', to_pin: 'Execute' },
-      { action: 'connect_nodes', blueprint: 'BP_CustomActor', from_node: 'node_1', from_pin: 'True', to_node: 'node_2', to_pin: 'Execute' },
-      { action: 'connect_nodes', blueprint: 'BP_CustomActor', from_node: 'node_1', from_pin: 'False', to_node: 'node_3', to_pin: 'Execute' },
-      { action: 'compile_blueprint', name: 'BP_CustomActor' }
-    ]
-  }
-}
+</html>`))
 
 export default app

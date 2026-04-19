@@ -932,15 +932,27 @@ open YourGame.xcworkspace   # then press ⌘B</div>
 <!-- DOWNLOAD -->
 <section>
   <div class="container">
+    <!-- Option A: Claude Desktop -->
+    <div class="dl-card" style="margin-bottom:28px">
+      <div style="font-size:48px;margin-bottom:16px">🤖</div>
+      <h3>Option A — Claude Desktop <span style="font-size:14px;font-weight:600;color:#a78bfa;background:rgba(167,139,250,0.12);padding:3px 10px;border-radius:20px;margin-left:8px">Recommended · No compilation</span></h3>
+      <p>Chat with Claude Desktop → it builds Blueprints inside your open UE project. Works with any OpenRouter key. Model picker included: Claude, Gemini, DeepSeek, GPT-4o.</p>
+      <div class="dl-links">
+        <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v3.1.0/mcp_claude_server.py" class="btn-primary">⬇ Download mcp_claude_server.py</a>
+        <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v3.1.0/MCP_SETUP.md" target="_blank" class="btn-ghost">📖 Setup Guide</a>
+      </div>
+      <p style="margin-top:20px;font-size:12px;color:var(--text3)">Also works with Cursor · Windsurf · Cline · any MCP client · OpenRouter key required · UE 5.x</p>
+    </div>
+    <!-- Option B: C++ Plugin -->
     <div class="dl-card">
       <div style="font-size:48px;margin-bottom:16px">⬇</div>
-      <h3>Download the Plugin</h3>
-      <p>Drop the folder in, compile once, type prompts — the plugin places every node and wires every pin. MIT licensed, open source.</p>
+      <h3>Option B — C++ Plugin <span style="font-size:14px;font-weight:600;color:#38bdf8;background:rgba(56,189,248,0.12);padding:3px 10px;border-radius:20px;margin-left:8px">Docked panel inside UE · Requires compilation</span></h3>
+      <p>Full C++ plugin with a docked chat tab inside the Unreal Editor. Places every node and wires every pin. One-time compile required.</p>
       <div class="dl-links">
         <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v3.0.0/MCPBlueprint-v3.0.0.zip" class="btn-primary">⬇ Download v3.0.0 (.zip)</a>
         <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-ghost">⭐ View Source on GitHub</a>
       </div>
-      <p style="margin-top:20px;font-size:12px;color:var(--text3)">Unreal Engine 5.3+ · C++ + Python · MIT License · Docked chat tab · Full node placement &amp; wiring · localhost:8080</p>
+      <p style="margin-top:20px;font-size:12px;color:var(--text3)">Unreal Engine 5.3+ · C++ + Python · MIT License · localhost:8080 · See BUILD.md for compile instructions</p>
     </div>
   </div>
 </section>

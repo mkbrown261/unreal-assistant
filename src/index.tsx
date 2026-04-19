@@ -326,7 +326,7 @@ app.get('/', (c) => c.html(`<!DOCTYPE html>
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Unreal Assistant — AI Blueprint MCP Plugin</title>
+<title>Unreal Assistant — AI Blueprint Generator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
 <style>
@@ -504,27 +504,27 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
     <button class="nav-link" onclick="go('install')">Install</button>
     <button class="nav-link" onclick="go('translator')">Translator</button>
     <button class="nav-link" onclick="go('plugin')">Plugin Docs</button>
-    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.0.0/MCPBlueprint-v1.0.0.zip" class="dl-btn">⬇ Download Plugin</a>
+    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.1.0/MCPBlueprint-v1.1.0.zip" class="dl-btn">⬇ Download Plugin</a>
   </div>
 </nav>
 
 <!-- HERO -->
 <section class="hero">
-  <div class="badge"><span class="badge-dot"></span>Unreal Engine 5 · AI Blueprint MCP Plugin</div>
+  <div class="badge"><span class="badge-dot"></span>Unreal Engine 5 · AI Blueprint Generator</div>
   <h1 class="hero-title">AI Blueprints,<br/>Inside Unreal Engine</h1>
   <p class="hero-sub">
-    Describe game logic in plain English. The MCP plugin runs <strong>inside your Unreal project</strong>,
-    receives AI-generated Blueprint commands, and creates fully wired, compiled Blueprints — automatically.
+    Describe game logic in plain English. The plugin runs <strong>directly inside Unreal Engine</strong>,
+    calls AI, and creates fully wired, compiled Blueprints. No Node.js. No terminal. No server.
   </p>
   <div class="hero-actions">
-    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.0.0/MCPBlueprint-v1.0.0.zip" class="btn-primary">⬇ Download Plugin v1.0.0</a>
+    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.1.0/MCPBlueprint-v1.1.0.zip" class="btn-primary">⬇ Download Plugin v1.1.0</a>
     <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-ghost">⭐ GitHub Source</a>
   </div>
   <div class="stats">
-    <div class="stat"><div class="stat-num">6</div><div class="stat-label">Blueprint Commands</div></div>
-    <div class="stat"><div class="stat-num">:8080</div><div class="stat-label">Unreal HTTP Server</div></div>
+    <div class="stat"><div class="stat-num">3</div><div class="stat-label">Steps to Install</div></div>
+    <div class="stat"><div class="stat-num">0</div><div class="stat-label">Extra Software</div></div>
     <div class="stat"><div class="stat-num">UE5</div><div class="stat-label">Compatible</div></div>
-    <div class="stat"><div class="stat-num">C++</div><div class="stat-label">Native Plugin</div></div>
+    <div class="stat"><div class="stat-num">Python</div><div class="stat-label">No Compilation</div></div>
   </div>
 </section>
 
@@ -532,8 +532,8 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
 <section id="how" class="alt-bg">
   <div class="container">
     <div class="section-label">Architecture</div>
-    <h2 class="section-title">How It All Connects</h2>
-    <p class="section-sub">The plugin runs an HTTP server <em>inside</em> Unreal. The MCP Node.js server is your bridge from AI to engine.</p>
+    <h2 class="section-title">How It Works</h2>
+    <p class="section-sub">Everything happens inside Unreal Engine. You type a prompt — the plugin calls AI and builds the Blueprint. No middleman.</p>
     <div class="arch-flow">
       <div class="arch-node">
         <div class="arch-icon">💬</div>
@@ -541,22 +541,16 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
         <div class="arch-sub">Plain English</div>
       </div>
       <div class="arch-arrow">→</div>
-      <div class="arch-node" style="border-color:rgba(168,85,247,.4)">
-        <div class="arch-icon">🧠</div>
-        <div class="arch-label">AI (OpenAI)</div>
-        <div class="arch-sub">MCP JSON commands</div>
-      </div>
-      <div class="arch-arrow">→</div>
-      <div class="arch-node">
-        <div class="arch-icon">⚙️</div>
-        <div class="arch-label">MCP Server</div>
-        <div class="arch-sub">Node.js · :3001</div>
-      </div>
-      <div class="arch-arrow">→</div>
       <div class="arch-node" style="border-color:rgba(0,212,255,.35)">
         <div class="arch-icon">🎮</div>
         <div class="arch-label">UE5 Plugin</div>
-        <div class="arch-sub">C++ · :8080</div>
+        <div class="arch-sub">Python · inside Unreal</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node" style="border-color:rgba(168,85,247,.4)">
+        <div class="arch-icon">🧠</div>
+        <div class="arch-label">OpenAI API</div>
+        <div class="arch-sub">Blueprint commands</div>
       </div>
       <div class="arch-arrow">→</div>
       <div class="arch-node" style="border-color:rgba(16,185,129,.4)">
@@ -573,13 +567,13 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
   <div class="container">
     <div class="section-label">Plugin Capabilities</div>
     <h2 class="section-title">What the Plugin Does</h2>
-    <p class="section-sub">A Python-based Unreal Editor plugin — no compilation needed. Handles every step of Blueprint creation via JSON commands from the MCP server.</p>
+    <p class="section-sub">A Python-based Unreal Editor plugin — no compilation needed. You type a prompt; it calls OpenAI and builds the Blueprint entirely inside the editor.</p>
     <div class="feat-grid">
       <div class="feat">
-        <div class="feat-icon">🌐</div>
-        <h3>HTTP Server Inside Unreal</h3>
-        <p>Plugin starts a Python <code>http.server</code> on port 8080 in a background thread at editor startup. No compilation, no DLLs — pure Python using Unreal's built-in interpreter.</p>
-        <div class="tags"><span class="tag">Python http.server</span><span class="tag">:8080</span><span class="tag">No compilation</span></div>
+        <div class="feat-icon">🤖</div>
+        <h3>Direct AI Integration</h3>
+        <p>Plugin calls OpenAI directly from inside Unreal using Python's built-in <code>urllib</code>. No external server, no Node.js, no terminal. Just type a prompt.</p>
+        <div class="tags"><span class="tag">OpenAI gpt-4o-mini</span><span class="tag">urllib.request</span><span class="tag">No external server</span></div>
       </div>
       <div class="feat">
         <div class="feat-icon">📋</div>
@@ -618,20 +612,18 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
 <!-- INSTALL -->
 <section id="install" class="alt-bg">
   <div class="container">
-    <div class="section-label">Step-by-Step Installation</div>
-    <h2 class="section-title">How to Install the Plugin</h2>
-    <p class="section-sub">Follow these steps exactly. No coding knowledge needed. No compilation. No Visual Studio.</p>
+    <div class="section-label">Installation</div>
+    <h2 class="section-title">3 Steps. That's It.</h2>
+    <p class="section-sub">No Node.js. No terminal. No compilation. No external server. Just download, drop the folder in, and type prompts.</p>
 
     <!-- badges -->
     <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:28px;margin-bottom:44px;">
-      <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);font-size:13px;font-weight:700;color:var(--green);">✓ No Visual Studio</div>
+      <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);font-size:13px;font-weight:700;color:var(--green);">✓ No Node.js</div>
+      <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);font-size:13px;font-weight:700;color:var(--green);">✓ No terminal</div>
       <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);font-size:13px;font-weight:700;color:var(--green);">✓ No compilation</div>
       <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);font-size:13px;font-weight:700;color:var(--green);">✓ Windows · Mac · Linux</div>
       <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);font-size:13px;font-weight:700;color:var(--green);">✓ Unreal Engine 5.0+</div>
     </div>
-
-    <!-- ── PART 1: PLUGIN ── -->
-    <div style="font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--purple3);margin-bottom:20px;">Part 1 — Install the Unreal Plugin</div>
 
     <div class="steps">
 
@@ -639,10 +631,21 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
       <div class="step">
         <div class="step-num">1</div>
         <div>
-          <h3>Download the plugin zip</h3>
-          <p>Click the button below. Your browser will download a file called <code>MCPBlueprint-v1.0.0.zip</code>. Save it anywhere — your Desktop is fine.</p>
-          <div style="margin-top:14px;">
-            <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.0.0/MCPBlueprint-v1.0.0.zip" class="btn-primary" style="display:inline-block;text-decoration:none;">⬇ Download MCPBlueprint-v1.0.0.zip</a>
+          <h3>Download &amp; drop the plugin folder into your project</h3>
+          <p>
+            Click download. Extract the zip. You get a folder called <code>MCPBlueprint</code>.<br/>
+            Find your Unreal project folder (the one with your <code>.uproject</code> file in it).<br/>
+            Create a <code>Plugins</code> folder inside it if one doesn't exist.<br/>
+            Copy <code>MCPBlueprint</code> into that <code>Plugins</code> folder.
+          </p>
+          <div class="code">YourGame\
+├── YourGame.uproject
+└── Plugins\
+    └── MCPBlueprint\          ← put it here
+        ├── MCPBlueprint.uplugin
+        └── Content\Python\...</div>
+          <div style="margin-top:16px;">
+            <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.1.0/MCPBlueprint-v1.1.0.zip" class="btn-primary" style="display:inline-block;text-decoration:none;">⬇ Download MCPBlueprint-v1.1.0.zip</a>
           </div>
         </div>
       </div>
@@ -651,17 +654,16 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
       <div class="step">
         <div class="step-num">2</div>
         <div>
-          <h3>Extract the zip</h3>
-          <p>Right-click the downloaded zip → <strong>"Extract All"</strong> (Windows) or double-click it (Mac). You will get a folder called <code>MCPBlueprint</code>. It should look like this inside:</p>
-          <div class="code">MCPBlueprint/
-├── MCPBlueprint.uplugin       ← the plugin definition file
-├── INSTALL.md                 ← this guide in text form
-└── Content/
-    └── Python/
-        ├── init_unreal.py
-        ├── mcp_server.py
-        └── blueprint_executor.py</div>
-          <p style="margin-top:12px;color:var(--text3);font-size:13px;">⚠️ Make sure you are moving the <strong>MCPBlueprint folder itself</strong>, not any outer wrapper folder created by the zip tool.</p>
+          <h3>Enable the plugin in Unreal → restart</h3>
+          <p>
+            Open your project in Unreal Engine.<br/>
+            Go to <strong>Edit → Plugins</strong>. Search for <strong>"MCP Blueprint Generator"</strong>.<br/>
+            Check the box to enable it. Click <strong>Restart Now</strong>.
+          </p>
+          <p style="margin-top:12px;">After restart, open <strong>Window → Output Log</strong>. You should see:</p>
+          <div class="code">[MCPBlueprint] MCP Blueprint Generator loaded.
+[MCPBlueprint] Set your key with: import ai_panel; ai_panel.set_key('sk-...')</div>
+          <p style="margin-top:10px;color:var(--green);font-size:13px;font-weight:600;">✓ Plugin is installed and running.</p>
         </div>
       </div>
 
@@ -669,168 +671,39 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
       <div class="step">
         <div class="step-num">3</div>
         <div>
-          <h3>Find your Unreal project folder</h3>
-          <p>Locate the folder where your <code>.uproject</code> file lives. It is the root of your Unreal project. For example:</p>
-          <div class="code">C:\Users\You\Documents\Unreal Projects\MyGame\
-├── MyGame.uproject            ← your project file is here
-├── Content\
-├── Config\
-└── ...                        ← you need to put the plugin HERE</div>
-        </div>
-      </div>
-
-      <!-- STEP 4 -->
-      <div class="step">
-        <div class="step-num">4</div>
-        <div>
-          <h3>Create a "Plugins" folder (if it doesn't exist)</h3>
-          <p>Inside your project folder, look for a folder called <code>Plugins</code>. If it is not there, create one — right-click → New Folder → name it <strong>exactly</strong> <code>Plugins</code> (capital P, no spaces).</p>
-          <div class="code">MyGame\
-├── MyGame.uproject
-├── Content\
-└── Plugins\                   ← create this if missing</div>
-        </div>
-      </div>
-
-      <!-- STEP 5 -->
-      <div class="step">
-        <div class="step-num">5</div>
-        <div>
-          <h3>Copy the MCPBlueprint folder into Plugins\</h3>
-          <p>Drag and drop (or copy/paste) the <code>MCPBlueprint</code> folder you extracted in Step 2 into the <code>Plugins</code> folder. The final result should look like this:</p>
-          <div class="code">MyGame\
-├── MyGame.uproject
-├── Content\
-└── Plugins\
-    └── MCPBlueprint\          ← paste it here
-        ├── MCPBlueprint.uplugin
-        └── Content\Python\...</div>
-          <p style="margin-top:12px;color:var(--green);font-size:13px;font-weight:600;">✓ If you can see <code>MCPBlueprint.uplugin</code> at that path, you did it right.</p>
-        </div>
-      </div>
-
-      <!-- STEP 6 -->
-      <div class="step">
-        <div class="step-num">6</div>
-        <div>
-          <h3>Open your project in Unreal Engine</h3>
-          <p>Double-click your <code>.uproject</code> file to open it in Unreal Engine. If Unreal asks <em>"This project contains a plugin that needs to be compiled"</em> — click <strong>No</strong> and ignore it; this is a Python plugin and does not need compilation.</p>
-        </div>
-      </div>
-
-      <!-- STEP 7 -->
-      <div class="step">
-        <div class="step-num">7</div>
-        <div>
-          <h3>Enable the plugin in Unreal</h3>
-          <p>Inside Unreal Editor, go to the top menu bar:</p>
-          <div class="code">Edit  →  Plugins</div>
-          <p style="margin-top:10px;">A Plugin Browser window opens. In the search box at the top, type:</p>
-          <div class="code">MCP Blueprint</div>
-          <p style="margin-top:10px;">You will see <strong>"MCP Blueprint"</strong> appear under <em>Developer Tools</em>. Click the checkbox next to it to <strong>enable it</strong>.</p>
-          <p style="margin-top:10px;">Unreal will ask you to <strong>restart the editor</strong>. Click <strong>Restart Now</strong>.</p>
-        </div>
-      </div>
-
-      <!-- STEP 8 -->
-      <div class="step">
-        <div class="step-num">8</div>
-        <div>
-          <h3>Confirm it's working</h3>
-          <p>After the editor restarts, open the <strong>Output Log</strong> panel (bottom of the screen, or go to <strong>Window → Output Log</strong>). Look for these lines:</p>
-          <div class="code">[MCPBlueprint] MCP HTTP server ready
-[MCPBlueprint] Listening on → http://localhost:8080/unreal/execute</div>
-          <p style="margin-top:12px;color:var(--green);font-size:13px;font-weight:600;">✓ If you see those lines, the plugin is installed and running.</p>
-          <p style="margin-top:8px;color:var(--text3);font-size:12px;">Don't see it? Make sure the plugin is enabled (Step 7) and that you are using Unreal Engine 5.0 or later.</p>
+          <h3>Enter your OpenAI key once, then generate Blueprints</h3>
+          <p>
+            In the Output Log, click the <strong>Python console input</strong> at the bottom. Type your key (only needed once — it's saved):
+          </p>
+          <div class="code">import ai_panel; ai_panel.set_key("sk-your-openai-key-here")</div>
+          <p style="margin-top:14px;">Now generate any Blueprint by typing a plain-English prompt:</p>
+          <div class="code">ai_panel.run("Create an enemy AI that chases the player")
+ai_panel.run("Create a door that opens when the player walks near it")
+ai_panel.run("Create a health pickup that restores 25 health on overlap")</div>
+          <p style="margin-top:12px;color:var(--green);font-size:13px;font-weight:600;">✓ The Blueprint appears in your Content Browser under /Game/MCP/ — fully wired and compiled.</p>
+          <p style="margin-top:6px;color:var(--text3);font-size:12px;">You only need to call <code>set_key()</code> once. After that, just call <code>ai_panel.run("...")</code> anytime.</p>
         </div>
       </div>
 
     </div>
 
-    <!-- ── PART 2: MCP SERVER ── -->
-    <div style="font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--purple3);margin-top:56px;margin-bottom:20px;">Part 2 — Run the AI Server (on your computer)</div>
-
-    <div class="steps">
-
-      <!-- STEP 9 -->
-      <div class="step">
-        <div class="step-num">9</div>
-        <div>
-          <h3>Install Node.js (if you don't have it)</h3>
-          <p>The MCP server runs on Node.js. Download and install it from <a href="https://nodejs.org" target="_blank" style="color:var(--purple3);">nodejs.org</a> — choose the <strong>LTS</strong> version. Run the installer, keep all defaults.</p>
-          <p style="margin-top:8px;color:var(--text3);font-size:13px;">To check if you already have it, open a terminal and type: <code>node -v</code>. If it prints a version number you're good.</p>
-        </div>
+    <!-- get your key callout -->
+    <div style="margin-top:36px;background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.2);border-radius:14px;padding:24px 28px;display:flex;align-items:flex-start;gap:16px;">
+      <div style="font-size:28px;line-height:1;">🔑</div>
+      <div>
+        <div style="font-size:14px;font-weight:700;color:var(--purple3);margin-bottom:6px;">Get your free OpenAI API key</div>
+        <p style="font-size:13px;color:var(--text2);line-height:1.7;margin:0;">
+          Go to <a href="https://platform.openai.com/api-keys" target="_blank" style="color:var(--purple3);font-weight:600;">platform.openai.com/api-keys</a> → sign in → click <strong>Create new secret key</strong>.
+          Copy it. It starts with <code>sk-</code>. You only enter it once inside Unreal.
+        </p>
       </div>
-
-      <!-- STEP 10 -->
-      <div class="step">
-        <div class="step-num">10</div>
-        <div>
-          <h3>Download the MCP server code</h3>
-          <p>Go to the GitHub repo and download the source code:</p>
-          <div style="margin-top:10px;">
-            <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-ghost" style="display:inline-block;text-decoration:none;">⭐ GitHub: mkbrown261/unreal-assistant</a>
-          </div>
-          <p style="margin-top:12px;">Click <strong>Code → Download ZIP</strong>. Extract it. You'll get a folder called <code>unreal-assistant-main</code>.</p>
-        </div>
-      </div>
-
-      <!-- STEP 11 -->
-      <div class="step">
-        <div class="step-num">11</div>
-        <div>
-          <h3>Get your OpenAI API key</h3>
-          <p>Go to <a href="https://platform.openai.com/api-keys" target="_blank" style="color:var(--purple3);">platform.openai.com/api-keys</a>, sign in, and create a new key. Copy it — it starts with <code>sk-</code>.</p>
-        </div>
-      </div>
-
-      <!-- STEP 12 -->
-      <div class="step">
-        <div class="step-num">12</div>
-        <div>
-          <h3>Start the MCP server</h3>
-          <p>Open a terminal (Command Prompt on Windows, Terminal on Mac). Run these commands one at a time:</p>
-          <div class="code"># 1. Go into the mcp-server folder
-cd unreal-assistant-main/mcp-server
-
-# 2. Install dependencies (only need to do this once)
-npm install
-
-# 3. Create a .env file with your OpenAI key
-#    Windows:
-echo OPENAI_API_KEY=sk-your-key-here > .env
-#    Mac / Linux:
-echo "OPENAI_API_KEY=sk-your-key-here" > .env
-
-# 4. Start the server
-node server.js</div>
-          <p style="margin-top:12px;">You should see: <code>MCP Server running on http://localhost:3001</code></p>
-          <p style="margin-top:6px;color:var(--text3);font-size:12px;">Keep this terminal window open while you use the plugin. The server needs to stay running.</p>
-        </div>
-      </div>
-
-      <!-- STEP 13 -->
-      <div class="step">
-        <div class="step-num">13</div>
-        <div>
-          <h3>Generate your first Blueprint</h3>
-          <p>With Unreal open <em>and</em> the MCP server running, open a second terminal window and send this command:</p>
-          <div class="code">curl -X POST http://localhost:3001/api/blueprint/generate \
-  -H "Content-Type: application/json" \
-  -d "{\"prompt\":\"Create an enemy that chases the player\",\"execute\":true}"</div>
-          <p style="margin-top:12px;color:var(--green);font-size:13px;font-weight:600;">✓ The Blueprint will appear in your Unreal Content Browser under /Game/MCP/ — fully wired and compiled.</p>
-          <p style="margin-top:8px;color:var(--text3);font-size:12px;">Change the prompt to describe any game logic you want. The AI generates the Blueprint commands and sends them directly to Unreal.</p>
-        </div>
-      </div>
-
     </div>
 
-    <!-- need help box -->
-    <div style="margin-top:40px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2);border-radius:14px;padding:24px 28px;">
-      <div style="font-size:14px;font-weight:700;color:var(--green);margin-bottom:8px;">🙋 Need help?</div>
-      <p style="font-size:13px;color:var(--text2);line-height:1.8;margin:0;">
-        Open an issue on <a href="https://github.com/mkbrown261/unreal-assistant/issues" target="_blank" style="color:var(--purple3);">GitHub</a> and describe what step you got stuck on.
-        Include what you see in the Unreal Output Log and what error message you got.
+    <!-- help box -->
+    <div style="margin-top:16px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2);border-radius:14px;padding:24px 28px;">
+      <div style="font-size:14px;font-weight:700;color:var(--green);margin-bottom:6px;">🙋 Stuck?</div>
+      <p style="font-size:13px;color:var(--text2);line-height:1.7;margin:0;">
+        Open an issue on <a href="https://github.com/mkbrown261/unreal-assistant/issues" target="_blank" style="color:var(--purple3);">GitHub</a> and paste what you see in the Output Log.
       </p>
     </div>
 
@@ -909,7 +782,7 @@ node server.js</div>
   <div class="container">
     <div class="section-label">Plugin Reference</div>
     <h2 class="section-title">Command Schema</h2>
-    <p class="section-sub">All six commands the Unreal plugin understands. POST to <code>http://localhost:8080/unreal/execute</code> with a <code>commands</code> array.</p>
+    <p class="section-sub">All six Blueprint commands the AI can generate. These are sent directly from the plugin to Unreal's Blueprint editor API.</p>
     <div class="feat-grid" style="margin-top:40px">
       <div class="feat">
         <div class="feat-icon">📦</div>
@@ -982,9 +855,9 @@ node server.js</div>
     <div class="dl-card">
       <div style="font-size:48px;margin-bottom:16px">⬇</div>
       <h3>Download the Plugin</h3>
-      <p>Get the complete MCPBlueprint Unreal Engine 5 plugin — Python-based, zero compilation required. Drop the folder in, enable, and go. MIT licensed and open source.</p>
+      <p>Drop the folder in, enable it, type prompts. That's it. No Node.js, no terminal, no compilation. MIT licensed, open source.</p>
       <div class="dl-links">
-        <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.0.0/MCPBlueprint-v1.0.0.zip" class="btn-primary">⬇ Download v1.0.0 (.zip)</a>
+        <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.1.0/MCPBlueprint-v1.1.0.zip" class="btn-primary">⬇ Download v1.1.0 (.zip)</a>
         <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-ghost">⭐ View Source on GitHub</a>
       </div>
       <p style="margin-top:20px;font-size:12px;color:var(--text3)">Unreal Engine 5.1+ · Python Script Plugin · MIT License · No compilation required</p>

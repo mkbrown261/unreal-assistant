@@ -1,25 +1,28 @@
 {
   "FileVersion": 3,
-  "Version": 1,
-  "VersionName": "1.0.0",
-  "FriendlyName": "MCP Blueprint",
-  "Description": "AI-powered Blueprint generation via MCP. Starts an HTTP server inside Unreal Engine on port 8080 that receives structured JSON commands and creates, wires, and compiles Blueprints automatically. No compilation required — pure Python plugin.",
+  "Version": 2,
+  "VersionName": "1.1.0",
+  "FriendlyName": "MCP Blueprint Generator",
+  "Description": "Generate fully wired, compiled Blueprints from plain-English prompts using AI. Type what you want — the plugin calls OpenAI directly and builds the Blueprint inside your editor. No external server, no Node.js, no compilation required.",
   "Category": "Developer Tools",
-  "CreatedBy": "Unreal Assistant",
-  "CreatedByURL": "https://unreal-assistant.pages.dev",
-  "DocsURL": "https://github.com/mkbrown261/unreal-assistant",
+  "CreatedBy": "mkbrown261",
+  "CreatedByURL": "https://github.com/mkbrown261/unreal-assistant",
+  "DocsURL": "https://github.com/mkbrown261/unreal-assistant/blob/main/Plugins/MCPBlueprint/INSTALL.md",
   "MarketplaceURL": "",
   "SupportURL": "https://github.com/mkbrown261/unreal-assistant/issues",
-  "EngineVersion": "5.0.0",
   "CanContainContent": true,
   "IsBetaVersion": false,
   "IsExperimentalVersion": false,
-  "Installed": true,
+  "Installed": false,
   "EnabledByDefault": false,
   "Modules": [],
   "Plugins": [
     {
       "Name": "PythonScriptPlugin",
+      "Enabled": true
+    },
+    {
+      "Name": "EditorScriptingUtilities",
       "Enabled": true
     }
   ]

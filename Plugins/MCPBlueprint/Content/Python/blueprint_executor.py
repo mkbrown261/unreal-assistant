@@ -1,461 +1,271 @@
 """
-blueprint_executor.py — MCP Blueprint Generator v1.7.0
+blueprint_executor.py — MCP Blueprint Generator v2.0.0
 Executes MCP Blueprint commands inside Unreal Engine 5.7+
 
-HONEST REWRITE — v1.7.0
-─────────────────────────
-The UE 5.7 Python API (BlueprintEditorLibrary) does NOT expose any
-node-placement functions. Prior versions called APIs like
-add_function_call_node_to_graph, add_custom_event_node, get_graphs,
-add_function_override, etc. None of these exist in the documented Python
-bindings. They either silently failed or threw AttributeErrors that were
-swallowed, producing empty Blueprints.
+Key fixes vs v1.7.x:
+  - compile_blueprint is called BEFORE add_variable (prevents silent failures)
+  - set_member_variable_default_value is attempted safely
+  - execute_command() is the single public entry point used by mcp_server.py
+  - All results are returned as human-readable strings (shown in chat, not Output Log)
 
-WHAT PYTHON CAN ACTUALLY DO IN UE 5.7 (BlueprintEditorLibrary):
-  create_blueprint_asset_with_parent(path, parent_class)  — create BP
-  find_event_graph(bp)                                    — get EventGraph
-  find_graph(bp, name)                                    — get any graph
-  add_function_graph(bp, name)                            — add function stub
-  add_member_variable(bp, name, pin_type)                 — add variable
-  set_member_variable_default_value(bp, name, value)      — set default
-  compile_blueprint(bp)                                   — compile
-
-WHAT PYTHON CANNOT DO (no Python bindings in UE 5.7):
-  Add nodes to graphs (no add_function_call_node_to_graph)
-  Wire pins between nodes
-  Place event nodes (BeginPlay, Tick, etc.)
-
-STRATEGY (v1.7.0):
-  1. create_blueprint  — creates the asset with correct parent class
-  2. add_variable      — adds all member variables with correct types
-  3. add_function      — creates named function stubs
-  4. blueprint_instructions — logs PROMINENT step-by-step wiring guide
-  5. compile_blueprint — final compile + open in editor
-
-The AI system prompt is updated to generate ONLY these actions. The
-blueprint_instructions output tells the user exactly what to wire.
-
-add_node / connect_nodes are no-ops with a clear INFO log (not an error).
+UE 5.7 Python API limitations (documented honestly):
+  - uk2node placement (arbitrary node insertion) is NOT exposed in Python
+  - Pin wiring is NOT possible from Python
+  - This module creates the Blueprint SHELL (asset, variables, function stubs)
+  - Wiring instructions are included in the AI's chat reply
 """
 
 import traceback
 
+# ---------------------------------------------------------------------------
+# Unreal import (graceful fallback for testing outside the editor)
+# ---------------------------------------------------------------------------
 try:
     import unreal
-    UNREAL_AVAILABLE = True
+    _IN_UNREAL = True
 except ImportError:
-    UNREAL_AVAILABLE = False
-    print("[MCPBlueprint] WARNING: unreal module not available")
+    unreal = None  # type: ignore
+    _IN_UNREAL = False
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Parent class mapping
+# ---------------------------------------------------------------------------
 
-def ok(msg, **extra):
-    r = {"success": True, "message": msg}
-    r.update(extra)
-    return r
-
-def err(msg):
-    return {"success": False, "message": msg}
-
-def _log(msg):
-    try:
-        unreal.log(f"[MCPBlueprint] {msg}")
-    except Exception:
-        print(f"[MCPBlueprint] {msg}")
-
-def _warn(msg):
-    try:
-        unreal.log_warning(f"[MCPBlueprint] {msg}")
-    except Exception:
-        print(f"[MCPBlueprint] WARN: {msg}")
-
-
-def _ensure_mcp_dir():
-    """Create /Game/MCP if it doesn't exist (idempotent)."""
-    try:
-        if not unreal.EditorAssetLibrary.does_directory_exist("/Game/MCP"):
-            unreal.EditorAssetLibrary.make_directory("/Game/MCP")
-            _log("Created /Game/MCP directory.")
-    except Exception as e:
-        _warn(f"_ensure_mcp_dir: {e}")
-
-
-def _load_bp(name):
-    """Load Blueprint from /Game/MCP/<name>. Raises ValueError if not found."""
-    # Try both asset reference formats
-    for path in (
-        f"/Game/MCP/{name}.{name}",
-        f"/Game/MCP/{name}",
-    ):
-        try:
-            bp = unreal.load_asset(path)
-            if bp is not None:
-                return bp
-        except Exception:
-            pass
-    raise ValueError(f"Blueprint not found at /Game/MCP/{name}")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Parent class resolution
-# ─────────────────────────────────────────────────────────────────────────────
-_PARENT_MAP = {
-    "Actor":            "/Script/Engine.Actor",
-    "Character":        "/Script/Engine.Character",
-    "Pawn":             "/Script/Engine.Pawn",
-    "GameModeBase":     "/Script/Engine.GameModeBase",
-    "GameMode":         "/Script/Engine.GameMode",
-    "PlayerController": "/Script/Engine.PlayerController",
-    "AIController":     "/Script/AIModule.AIController",
-    "ActorComponent":   "/Script/Engine.ActorComponent",
-    "UActorComponent":  "/Script/Engine.ActorComponent",
-    "SceneComponent":   "/Script/Engine.SceneComponent",
-    "USceneComponent":  "/Script/Engine.SceneComponent",
-    "StaticMeshActor":  "/Script/Engine.StaticMeshActor",
-    "HUD":              "/Script/Engine.HUD",
-    "GameInstance":     "/Script/Engine.GameInstance",
-    "UserWidget":       "/Script/UMG.UserWidget",
-    "GameStateBase":    "/Script/Engine.GameStateBase",
-    "PlayerState":      "/Script/Engine.PlayerState",
+PARENT_CLASS_MAP = {
+    "actor":                    "/Script/Engine.Actor",
+    "character":                "/Script/Engine.Character",
+    "pawn":                     "/Script/Engine.Pawn",
+    "gamemodebase":             "/Script/Engine.GameModeBase",
+    "gamemode":                 "/Script/Engine.GameModeBase",
+    "playercontroller":         "/Script/Engine.PlayerController",
+    "actorcomponent":           "/Script/Engine.ActorComponent",
+    "scenecomponent":           "/Script/Engine.SceneComponent",
+    "gameinstance":             "/Script/Engine.GameInstance",
+    "gamestate":                "/Script/Engine.GameState",
+    "playerstate":              "/Script/Engine.PlayerState",
+    "hud":                      "/Script/Engine.HUD",
+    "userwidget":               "/Script/UMG.UserWidget",
+    "animinstance":             "/Script/Engine.AnimInstance",
+    "blueprintfunctionlibrary": "/Script/Engine.BlueprintFunctionLibrary",
 }
 
+# ---------------------------------------------------------------------------
+# Variable type helpers
+# ---------------------------------------------------------------------------
 
-def _resolve_parent_class(parent_str):
-    if not parent_str:
-        return unreal.Actor.static_class()
+def _make_pin_type(var_type: str):
+    """Return an unreal.EdGraphPinType for the given type string."""
+    vt = var_type.lower().strip()
+    pc = unreal.PinContainerType.NONE
+    pt = unreal.EdGraphPinType()
+    pt.container_type = pc
+    pt.is_reference    = False
+    pt.is_const        = False
 
-    if parent_str in _PARENT_MAP:
-        cls = unreal.load_class(None, _PARENT_MAP[parent_str])
-        if cls:
-            return cls
+    if vt in ("bool", "boolean"):
+        pt.pc_type = "bool"
+    elif vt in ("int", "integer", "int32"):
+        pt.pc_type = "int"
+    elif vt in ("float", "double"):
+        pt.pc_type = "real"
+        pt.pc_sub_category_object = unreal.load_object(None, "/Script/CoreUObject.Float")
+    elif vt in ("string", "str", "text"):
+        pt.pc_type = "string"
+    elif vt in ("name",):
+        pt.pc_type = "name"
+    elif vt in ("vector", "vec", "vector3"):
+        pt.pc_type  = "struct"
+        pt.pc_sub_category_object = unreal.load_object(None, "/Script/CoreUObject.Vector")
+    elif vt in ("rotator", "rot", "rotation"):
+        pt.pc_type  = "struct"
+        pt.pc_sub_category_object = unreal.load_object(None, "/Script/CoreUObject.Rotator")
+    elif vt in ("transform",):
+        pt.pc_type  = "struct"
+        pt.pc_sub_category_object = unreal.load_object(None, "/Script/CoreUObject.Transform")
+    elif vt in ("object", "obj"):
+        pt.pc_type = "object"
+        pt.pc_sub_category_object = unreal.load_object(None, "/Script/CoreUObject.Object")
+    elif vt in ("class",):
+        pt.pc_type = "class"
+        pt.pc_sub_category_object = unreal.load_object(None, "/Script/CoreUObject.Object")
+    elif vt in ("soft_object", "softobject"):
+        pt.pc_type = "softobject"
+        pt.pc_sub_category_object = unreal.load_object(None, "/Script/CoreUObject.Object")
+    elif vt in ("soft_class", "softclass"):
+        pt.pc_type = "softclass"
+        pt.pc_sub_category_object = unreal.load_object(None, "/Script/CoreUObject.Object")
+    else:
+        # Default: float
+        pt.pc_type = "real"
+        pt.pc_sub_category_object = unreal.load_object(None, "/Script/CoreUObject.Float")
 
-    for module in ("Engine", "AIModule", "UMG", "GameplayAbilities"):
-        cls = unreal.load_class(None, f"/Script/{module}.{parent_str}")
-        if cls:
-            return cls
-
-    # Strip U/A prefix (e.g. UActorComponent → ActorComponent)
-    stripped = parent_str.lstrip("UA")
-    if stripped != parent_str:
-        cls = unreal.load_class(None, f"/Script/Engine.{stripped}")
-        if cls:
-            return cls
-
-    _warn(f"Unknown parent class '{parent_str}', defaulting to Actor.")
-    return unreal.Actor.static_class()
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Variable type map (string-based — no BlueprintVariableType enum needed)
-# ─────────────────────────────────────────────────────────────────────────────
-_VAR_TYPES = {
-    "Boolean":   ("bool",   ""),
-    "Bool":      ("bool",   ""),
-    "Integer":   ("int",    ""),
-    "Int":       ("int",    ""),
-    "Int64":     ("int64",  ""),
-    "Float":     ("real",   "float"),
-    "Double":    ("real",   "double"),
-    "String":    ("string", ""),
-    "Name":      ("name",   ""),
-    "Text":      ("text",   ""),
-    "Vector":    ("struct", "/Script/CoreUObject.Vector"),
-    "Rotator":   ("struct", "/Script/CoreUObject.Rotator"),
-    "Transform": ("struct", "/Script/CoreUObject.Transform"),
-    "Color":     ("struct", "/Script/CoreUObject.LinearColor"),
-}
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# create_blueprint
-# ─────────────────────────────────────────────────────────────────────────────
-def create_blueprint(cmd):
-    name       = cmd.get("name") or cmd.get("blueprint_name")
-    parent_str = cmd.get("parent_class", "Actor")
-
-    if not name:
-        return err("create_blueprint: 'name' is required")
-
-    _ensure_mcp_dir()
-    parent     = _resolve_parent_class(parent_str)
-    asset_path = f"/Game/MCP/{name}"
-
-    # Check if already exists
-    if unreal.EditorAssetLibrary.does_asset_exist(asset_path):
-        _log(f"Blueprint '{name}' already exists — loading existing")
-        bp = unreal.load_asset(asset_path)
-        if bp:
-            return ok(f"Loaded existing Blueprint '{name}'", blueprint=name)
-
-    bp = None
-
-    # PRIMARY: AssetTools + BlueprintFactory
-    # This does NOT trigger immediate compilation unlike create_blueprint_asset_with_parent,
-    # which crashes UE 5.7 on macOS when called during a Slate tick callback
-    # (FBlueprintCompileReinstancer::GenerateFieldMappings assertion failure).
-    try:
-        factory = unreal.BlueprintFactory()
-        factory.set_editor_property("parent_class", parent)
-        tools = unreal.AssetToolsHelpers.get_asset_tools()
-        bp = tools.create_asset(
-            asset_name=name,
-            package_path="/Game/MCP",
-            asset_class=unreal.Blueprint,
-            factory=factory,
-        )
-        _log(f"Created via AssetTools: {name}")
-    except Exception as e:
-        _warn(f"AssetTools creation failed: {e}")
-
-    # FALLBACK: BlueprintEditorLibrary (triggers immediate compilation — may crash in Slate tick)
-    if bp is None:
-        try:
-            bp = unreal.BlueprintEditorLibrary.create_blueprint_asset_with_parent(
-                asset_path, parent
-            )
-            _log(f"Created via BlueprintEditorLibrary: {name}")
-        except Exception as e:
-            _warn(f"BlueprintEditorLibrary fallback failed: {e}")
-
-    if bp is None:
-        return err(f"create_blueprint: failed to create '{name}' — both methods failed")
-
-    try:
-        unreal.EditorAssetLibrary.save_asset(asset_path, only_if_is_dirty=False)
-    except Exception as e:
-        _warn(f"save_asset: {e}")
-
-    _log(f"Created Blueprint '{name}' (parent: {parent_str}) at /Game/MCP/{name}")
-    return ok(f"Created Blueprint '{name}' (parent: {parent_str})", blueprint=name)
+    return pt
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# add_variable
-# ─────────────────────────────────────────────────────────────────────────────
-def add_variable(cmd):
-    bp_name  = cmd.get("blueprint") or cmd.get("blueprint_name")
-    params   = cmd.get("parameters") or {}
-    var_name = cmd.get("variable_name") or params.get("variable_name")
-    var_type = cmd.get("variable_type") or params.get("variable_type", "Float")
-    default  = cmd.get("default_value")
-    if default is None:
-        default = params.get("default_value")
+# ---------------------------------------------------------------------------
+# Individual actions
+# ---------------------------------------------------------------------------
 
-    if not bp_name:  return err("add_variable: 'blueprint' is required")
-    if not var_name: return err("add_variable: 'variable_name' is required")
+def _create_blueprint(cmd: dict) -> str:
+    name        = cmd.get("name", "BP_New")
+    path        = cmd.get("path", "/Game/MCP").rstrip("/")
+    parent_key  = cmd.get("parent_class", "Actor").lower()
+    parent_path = PARENT_CLASS_MAP.get(parent_key,
+                  cmd.get("parent_class", "/Script/Engine.Actor"))
 
-    if var_type not in _VAR_TYPES:
-        _warn(f"Unknown variable type '{var_type}', defaulting to Float")
-        var_type = "Float"
+    asset_path = f"{path}/{name}"
 
-    pin_cat, pin_sub = _VAR_TYPES[var_type]
+    # Load existing asset if already present
+    existing = unreal.load_asset(asset_path)
+    if existing and isinstance(existing, unreal.Blueprint):
+        return f"Already exists: {asset_path}"
 
-    try:
-        bp = _load_bp(bp_name)
-    except ValueError as e:
-        return err(str(e))
+    parent_class = unreal.load_class(None, parent_path)
+    if not parent_class:
+        parent_class = unreal.Actor
 
-    pin_type = unreal.EdGraphPinType()
-    pin_type.set_editor_property("pin_category", pin_cat)
+    factory = unreal.BlueprintFactory()
+    factory.parent_class = parent_class
 
-    if pin_sub:
-        if pin_cat == "struct":
-            struct_obj = unreal.load_object(None, pin_sub)
-            if struct_obj:
-                pin_type.set_editor_property("pin_sub_category_object", struct_obj)
-        else:
-            pin_type.set_editor_property("pin_sub_category", pin_sub)
+    tools = unreal.AssetToolsHelpers.get_asset_tools()
+    bp = tools.create_asset(name, path, unreal.Blueprint, factory)
+    if not bp:
+        raise RuntimeError(f"Failed to create Blueprint at {asset_path}")
 
-    try:
-        success = unreal.BlueprintEditorLibrary.add_member_variable(bp, var_name, pin_type)
-        if not success:
-            _warn(f"add_member_variable returned False for '{var_name}'")
-    except Exception as e:
-        return err(f"add_variable: {e}")
+    # Initial compile so the asset is in a valid state for variable addition
+    unreal.BlueprintEditorLibrary.compile_blueprint(bp)
+    unreal.EditorAssetLibrary.save_asset(asset_path)
+    return f"Created {asset_path}"
 
-    if default is not None:
+
+def _compile_blueprint(cmd: dict) -> str:
+    path = cmd.get("path", "").rstrip("/")
+    if not path:
+        raise ValueError("compile_blueprint requires 'path'")
+    bp = unreal.load_asset(path)
+    if not bp:
+        raise RuntimeError(f"Blueprint not found: {path}")
+    unreal.BlueprintEditorLibrary.compile_blueprint(bp)
+    unreal.EditorAssetLibrary.save_asset(path)
+    return f"Compiled {path}"
+
+
+def _add_variable(cmd: dict) -> str:
+    bp_path     = cmd.get("blueprint_path", "").rstrip("/")
+    var_name    = cmd.get("var_name", "")
+    var_type    = cmd.get("var_type", "float")
+    default_val = cmd.get("default_value", None)
+
+    if not bp_path or not var_name:
+        raise ValueError("add_variable requires 'blueprint_path' and 'var_name'")
+
+    bp = unreal.load_asset(bp_path)
+    if not bp:
+        raise RuntimeError(f"Blueprint not found: {bp_path}")
+
+    # Compile first — some UE versions silently drop variables without this
+    unreal.BlueprintEditorLibrary.compile_blueprint(bp)
+
+    pin_type = _make_pin_type(var_type)
+    ok = unreal.BlueprintEditorLibrary.add_member_variable(bp, var_name, pin_type)
+    if not ok:
+        raise RuntimeError(f"add_member_variable returned False for '{var_name}'")
+
+    # Attempt to set default value (best-effort; may not work for all types)
+    if default_val is not None:
         try:
             unreal.BlueprintEditorLibrary.set_member_variable_default_value(
-                bp, var_name, str(default)
-            )
+                bp, var_name, str(default_val))
         except Exception:
-            pass
+            pass  # Default value not critical
 
-    # Do NOT compile here — intermediate compiles during Slate tick crash UE 5.7.
-    # The final compile_blueprint command in the sequence handles compilation.
-
-    return ok(f"Added variable '{var_name}' ({var_type}) to {bp_name}")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# add_function
-# Creates a named function stub — nodes must be added manually in the editor
-# ─────────────────────────────────────────────────────────────────────────────
-def add_function(cmd):
-    bp_name   = cmd.get("blueprint") or cmd.get("blueprint_name")
-    func_name = cmd.get("function_name") or cmd.get("name", "NewFunction")
-
-    if not bp_name: return err("add_function: 'blueprint' is required")
-
-    try:
-        bp = _load_bp(bp_name)
-    except ValueError as e:
-        return err(str(e))
-
-    try:
-        graph = unreal.BlueprintEditorLibrary.add_function_graph(bp, func_name)
-        if graph is None:
-            return err(f"add_function_graph returned None for '{func_name}'")
-        try:
-            unreal.BlueprintEditorLibrary.compile_blueprint(bp)
-        except Exception:
-            pass
-        return ok(f"Added function stub '{func_name}' to {bp_name}")
-    except Exception as e:
-        return err(f"add_function: {e}")
+    unreal.BlueprintEditorLibrary.compile_blueprint(bp)
+    unreal.EditorAssetLibrary.save_asset(bp_path)
+    return f"Added variable '{var_name}' ({var_type}) to {bp_path}"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# blueprint_instructions
-#
-# The AI includes a blueprint_instructions command with step-by-step wiring
-# guidance. We log it prominently in the Output Log so the user can follow
-# the instructions in the Blueprint editor.
-# ─────────────────────────────────────────────────────────────────────────────
-def blueprint_instructions(cmd):
-    bp_name      = cmd.get("blueprint") or cmd.get("blueprint_name", "Blueprint")
+def _add_function(cmd: dict) -> str:
+    bp_path       = cmd.get("blueprint_path", "").rstrip("/")
+    function_name = cmd.get("function_name", "")
+
+    if not bp_path or not function_name:
+        raise ValueError("add_function requires 'blueprint_path' and 'function_name'")
+
+    bp = unreal.load_asset(bp_path)
+    if not bp:
+        raise RuntimeError(f"Blueprint not found: {bp_path}")
+
+    unreal.BlueprintEditorLibrary.add_function_graph(bp, function_name)
+    unreal.BlueprintEditorLibrary.compile_blueprint(bp)
+    unreal.EditorAssetLibrary.save_asset(bp_path)
+    return f"Added function '{function_name}' to {bp_path}"
+
+
+def _blueprint_instructions(cmd: dict) -> str:
+    """Legacy action — just return the instructions text (now shown in chat)."""
     instructions = cmd.get("instructions", "")
-
-    if instructions:
-        separator = "=" * 70
-        _log(separator)
-        _log(f"  WIRING INSTRUCTIONS FOR: {bp_name}")
-        _log(separator)
-        _log("  Double-click the Blueprint in /Game/MCP/ to open it.")
-        _log("  Then implement the following logic:")
-        _log("")
-        for line in instructions.strip().split("\\n"):
-            _log(f"  {line}")
-        _log("")
-        _log(separator)
-        _log("  TIP: Open Window → Output Log, filter by 'MCPBlueprint'")
-        _log(separator)
-
-    return ok(f"Wiring instructions logged for {bp_name}")
+    return f"Instructions: {instructions[:80]}..." if len(instructions) > 80 else f"Instructions: {instructions}"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# compile_blueprint
-# ─────────────────────────────────────────────────────────────────────────────
-def compile_blueprint(cmd):
-    name = cmd.get("name") or cmd.get("blueprint") or cmd.get("blueprint_name")
-    if not name:
-        return err("compile_blueprint: 'name' is required")
-
-    try:
-        bp = _load_bp(name)
-    except ValueError as e:
-        return err(str(e))
-
-    try:
-        unreal.BlueprintEditorLibrary.compile_blueprint(bp)
-    except Exception as e:
-        _warn(f"compile warning (non-fatal): {e}")
-        # Try save without compile — blueprint is still usable in editor
-        try:
-            unreal.EditorAssetLibrary.save_asset(f"/Game/MCP/{name}", only_if_is_dirty=False)
-        except Exception:
-            pass
-        return ok(f"Saved {name} (compile skipped — safe to open in editor)")
-
-    try:
-        unreal.EditorAssetLibrary.save_asset(f"/Game/MCP/{name}", only_if_is_dirty=False)
-    except Exception as e:
-        _warn(f"save warning: {e}")
-
-    _log(f"Compiled and saved {name}")
-    return ok(f"Compiled and saved {name}")
+# No-ops for node/pin operations (Python cannot do these in UE 5.7)
+def _noop_node(cmd: dict) -> str:
+    action = cmd.get("action", "")
+    return f"{action} skipped (Python cannot place nodes in UE 5.7 \u2014 see wiring instructions in chat)"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Graceful no-ops for node commands
-#
-# The AI is instructed not to generate these, but if it does anyway,
-# log a clear INFO message (not an error) so the user knows.
-# ─────────────────────────────────────────────────────────────────────────────
-def _node_not_supported(cmd):
-    action = cmd.get("action", "?")
-    node   = cmd.get("node", cmd.get("name", ""))
-    bp     = cmd.get("blueprint", cmd.get("blueprint_name", ""))
-    _log(
-        f"INFO: '{action}' ({node}) cannot be placed via Python in UE 5.7. "
-        f"Open {bp} in the Blueprint editor to add this node manually."
-    )
-    # Return success=True with warning=True so this doesn't count as failure
-    return ok(
-        f"[INFO] '{action}' ({node}) — add manually in Blueprint editor",
-        warning=True,
-    )
+# ---------------------------------------------------------------------------
+# Dispatch table
+# ---------------------------------------------------------------------------
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Dispatcher
-# ─────────────────────────────────────────────────────────────────────────────
-COMMANDS = {
-    "create_blueprint":       create_blueprint,
-    "add_variable":           add_variable,
-    "add_function":           add_function,
-    "blueprint_instructions": blueprint_instructions,
-    "compile_blueprint":      compile_blueprint,
-    # Graceful no-ops (logged as INFO, not FAIL)
-    "add_node":               _node_not_supported,
-    "connect_nodes":          _node_not_supported,
-    "set_variable":           _node_not_supported,
+_ACTIONS = {
+    "create_blueprint":      _create_blueprint,
+    "compile_blueprint":     _compile_blueprint,
+    "add_variable":          _add_variable,
+    "add_member_variable":   _add_variable,
+    "add_function":          _add_function,
+    "add_function_graph":    _add_function,
+    "blueprint_instructions": _blueprint_instructions,
+    # No-ops
+    "add_node":              _noop_node,
+    "connect_nodes":         _noop_node,
+    "wire_pins":             _noop_node,
+    "add_component":         _noop_node,
 }
 
 
-def execute_command(cmd):
-    if not isinstance(cmd, dict):
-        return err("Command must be a dict")
-    action = cmd.get("action")
-    if not action:
-        return err("Missing 'action' field")
-    handler = COMMANDS.get(action)
-    if not handler:
-        _log(f"Unknown action '{action}' — skipping")
-        return ok(f"[INFO] Unknown action '{action}' — skipping", warning=True)
-    try:
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def execute_command(cmd: dict) -> str:
+    """
+    Execute a single MCP Blueprint command dict.
+    Returns a human-readable result string.
+    Raises on error.
+    """
+    if not _IN_UNREAL:
+        return f"[stub] Would execute: {cmd.get('action', '?')}"
+
+    action = cmd.get("action", "").lower()
+    handler = _ACTIONS.get(action)
+    if handler:
         return handler(cmd)
-    except Exception:
-        return err(f"{action} raised exception:\n{traceback.format_exc()}")
+    else:
+        return f"Unknown action '{action}' \u2014 skipped"
 
 
-def execute_batch(commands):
-    if not isinstance(commands, list):
-        return {"success": False, "error": "commands must be a list", "results": []}
-
-    _ensure_mcp_dir()
-
-    results   = []
-    succeeded = 0
-    failed    = 0
-
+def execute_commands(commands: list) -> list:
+    """
+    Execute a list of command dicts.
+    Returns list of (action, result_or_error) tuples.
+    """
+    results = []
     for cmd in commands:
-        r = execute_command(cmd)
-        results.append(r)
-        if r.get("success"):
-            succeeded += 1
-        else:
-            failed += 1
-            unreal.log_error(f"[MCPBlueprint] FAIL: {r.get('message', '?')}")
-
-    return {
-        "success":   failed == 0,
-        "total":     len(commands),
-        "succeeded": succeeded,
-        "failed":    failed,
-        "results":   results,
-    }
+        action = cmd.get("action", "?")
+        try:
+            r = execute_command(cmd)
+            results.append((action, r, None))
+        except Exception as exc:
+            results.append((action, None, traceback.format_exc()))
+    return results

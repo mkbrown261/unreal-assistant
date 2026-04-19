@@ -504,20 +504,20 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
     <button class="nav-link" onclick="go('install')">Install</button>
     <button class="nav-link" onclick="go('translator')">Translator</button>
     <button class="nav-link" onclick="go('plugin')">Plugin Docs</button>
-    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.7.1/MCPBlueprint-v1.7.1.zip" class="dl-btn">⬇ Download Plugin</a>
+    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v2.0.0/MCPBlueprint-v2.0.0.zip" class="dl-btn">⬇ Download Plugin</a>
   </div>
 </nav>
 
 <!-- HERO -->
 <section class="hero">
-  <div class="badge"><span class="badge-dot"></span>Unreal Engine 5 · AI Blueprint Generator</div>
+  <div class="badge"><span class="badge-dot"></span>Unreal Engine 5 · AI Blueprint Generator · v2.0.0</div>
   <h1 class="hero-title">AI Blueprints,<br/>Inside Unreal Engine</h1>
   <p class="hero-sub">
     Describe game logic in plain English. The plugin runs <strong>directly inside Unreal Engine</strong>,
-    calls AI, and creates fully wired, compiled Blueprints. No Node.js. No terminal. No server.
+    opens a <strong>persistent chat panel</strong> in your browser, calls AI, and creates Blueprints with variables and function stubs. Results appear in the chat — never the Output Log.
   </p>
   <div class="hero-actions">
-    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.7.1/MCPBlueprint-v1.7.1.zip" class="btn-primary">⬇ Download Plugin v1.7.1</a>
+    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v2.0.0/MCPBlueprint-v2.0.0.zip" class="btn-primary">⬇ Download Plugin v2.0.0</a>
     <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-ghost">⭐ GitHub Source</a>
   </div>
   <div class="stats">
@@ -533,30 +533,30 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
   <div class="container">
     <div class="section-label">Architecture</div>
     <h2 class="section-title">How It Works</h2>
-    <p class="section-sub">Everything happens inside Unreal Engine. You type a prompt — the plugin calls AI and builds the Blueprint. No middleman.</p>
+    <p class="section-sub">Everything happens inside Unreal Engine. You type a prompt in the <strong>persistent chat panel</strong> — the plugin calls AI and creates the Blueprint. Replies appear in the chat, never the Output Log.</p>
     <div class="arch-flow">
       <div class="arch-node">
         <div class="arch-icon">💬</div>
-        <div class="arch-label">Your Prompt</div>
-        <div class="arch-sub">Plain English</div>
+        <div class="arch-label">Chat Panel</div>
+        <div class="arch-sub">Browser UI at :8080</div>
       </div>
       <div class="arch-arrow">→</div>
       <div class="arch-node" style="border-color:rgba(0,212,255,.35)">
         <div class="arch-icon">🎮</div>
         <div class="arch-label">UE5 Plugin</div>
-        <div class="arch-sub">Python · inside Unreal</div>
+        <div class="arch-sub">Python · HTTP server</div>
       </div>
       <div class="arch-arrow">→</div>
       <div class="arch-node" style="border-color:rgba(168,85,247,.4)">
         <div class="arch-icon">🧠</div>
-        <div class="arch-label">OpenAI API</div>
-        <div class="arch-sub">Blueprint commands</div>
+        <div class="arch-label">OpenRouter AI</div>
+        <div class="arch-sub">Claude / Gemini / GPT-4o</div>
       </div>
       <div class="arch-arrow">→</div>
       <div class="arch-node" style="border-color:rgba(16,185,129,.4)">
         <div class="arch-icon">📋</div>
         <div class="arch-label">Blueprint</div>
-        <div class="arch-sub">Compiled in-engine</div>
+        <div class="arch-sub">Assets + chat reply</div>
       </div>
     </div>
   </div>
@@ -570,10 +570,10 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
     <p class="section-sub">A Python-based Unreal Editor plugin — no compilation needed. You type a prompt; it calls OpenAI and builds the Blueprint entirely inside the editor.</p>
     <div class="feat-grid">
       <div class="feat">
-        <div class="feat-icon">🤖</div>
-        <h3>Direct AI Integration</h3>
-        <p>Plugin calls OpenAI directly from inside Unreal using Python's built-in <code>urllib</code>. No external server, no Node.js, no terminal. Just type a prompt.</p>
-        <div class="tags"><span class="tag">OpenAI gpt-4o-mini</span><span class="tag">urllib.request</span><span class="tag">No external server</span></div>
+        <div class="feat-icon">💬</div>
+        <h3>Persistent Chat Panel</h3>
+        <p>A full chatbot UI opens in your browser at <code>localhost:8080</code>. AI replies appear as chat bubbles — never the Output Log. Conversation history is preserved. Dark theme, markdown rendering, copy buttons.</p>
+        <div class="tags"><span class="tag">localhost:8080/chat</span><span class="tag">Persistent history</span><span class="tag">Markdown rendering</span></div>
       </div>
       <div class="feat">
         <div class="feat-icon">📋</div>
@@ -601,9 +601,9 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
       </div>
       <div class="feat">
         <div class="feat-icon">🔄</div>
-        <h3>Execution Translator</h3>
-        <p>API endpoint (<code>/api/translate</code>) normalises raw MCP JSON into clean Blueprint Manager format — explicit fields, canonical node names, guaranteed unique IDs, compile step last.</p>
-        <div class="tags"><span class="tag">POST /api/translate</span><span class="tag">Node normalisation</span><span class="tag">Pin mapping</span></div>
+        <h3>Multi-Model Support</h3>
+        <p>Switch between 10 AI models in the chat panel dropdown: Claude Sonnet/Opus/Haiku, Gemini 2.5 Pro/Flash, DeepSeek V3/R1, and GPT-4o. Model preference is saved automatically.</p>
+        <div class="tags"><span class="tag">Claude Sonnet 4.5</span><span class="tag">Gemini 2.5 Pro</span><span class="tag">DeepSeek R1</span></div>
       </div>
     </div>
   </div>
@@ -636,7 +636,7 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
           <p><strong>1a — Download and extract</strong></p>
           <p>Click the button below. Extract the zip. You'll get a folder called <code>MCPBlueprint</code>.</p>
           <div style="margin-top:10px;margin-bottom:18px;">
-            <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.7.1/MCPBlueprint-v1.7.1.zip" class="btn-primary" style="display:inline-block;text-decoration:none;">⬇ Download MCPBlueprint-v1.7.1.zip</a>
+            <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v2.0.0/MCPBlueprint-v2.0.0.zip" class="btn-primary" style="display:inline-block;text-decoration:none;">⬇ Download MCPBlueprint-v2.0.0.zip</a>
           </div>
 
           <p><strong>1b — Find your Unreal project folder</strong></p>
@@ -689,10 +689,10 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
             Check the box to enable it. Click <strong>Restart Now</strong>.
           </p>
           <p style="margin-top:12px;">After restart you'll see a new <strong>🤖 MCP AI</strong> button appear in the Level Editor toolbar (top of the editor). You'll also see in the Output Log:</p>
-          <div class="code">[MCPBlueprint] MCP Blueprint Generator v1.7.1 loading…
-[MCPBlueprint] ✔ [MCP AI] button added to the Level Editor toolbar</div>
-          <p style="margin-top:10px;color:var(--green);font-size:13px;font-weight:600;">✓ Plugin is running. Click the [MCP AI] toolbar button to open the generator.</p>
-          <p style="margin-top:8px;color:var(--text3);font-size:12px;">On some setups a full floating window opens automatically. On others, the toolbar button is your entry point — both work identically.</p>
+          <div class="code">[MCPBlueprint] Server started → http://localhost:8080/chat
+[MCPBlueprint] UI module ready.</div>
+          <p style="margin-top:10px;color:var(--green);font-size:13px;font-weight:600;">✓ Plugin is running. Your browser opens automatically with the chat panel.</p>
+          <p style="margin-top:8px;color:var(--text3);font-size:12px;">The chat panel opens at <code>http://localhost:8080/chat</code> automatically. Click the <strong>🤖 MCP AI</strong> toolbar button at any time to re-open it.</p>
         </div>
       </div>
 
@@ -700,8 +700,8 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
       <div class="step">
         <div class="step-num">3</div>
         <div>
-          <h3>Enter your OpenRouter API key — one time only</h3>
-          <p>Click the <strong>🤖 MCP AI</strong> toolbar button. The first time you click it, it asks for your API key. Paste it and press OK — it's saved permanently. You never have to enter it again.</p>
+          <h3>Enter your OpenRouter API key in the chat panel</h3>
+          <p>The chat panel opens in your browser automatically. If no API key is configured, a setup card appears at the top of the chat. Click <strong>⚙️ Settings</strong> to enter your key — it's saved permanently to <code>~/.mcp_blueprint_config.json</code>.</p>
 
           <!-- Key field mockup -->
           <div style="margin:14px 0;background:#0b0f1a;border:1.5px solid #1e2d45;border-radius:12px;padding:16px 18px;">
@@ -723,8 +723,8 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
       <div class="step">
         <div class="step-num">4</div>
         <div>
-          <h3>Pick a model, type your prompt, click Generate</h3>
-          <p>After entering your key, a <strong>model selection</strong> step appears showing all 20 available AI models. Pick one by number (or press OK to keep the default), then type your Blueprint description and hit Generate. Results appear in the Output Log inside Unreal.</p>
+          <h3>Pick a model, type your prompt, press Send</h3>
+          <p>In the chat panel, select a model from the dropdown (Claude Sonnet 4.5 recommended), type your Blueprint description in the input box, and press <strong>Enter</strong> or click the Send button. The AI reply and execution results appear directly in the chat.</p>
 
           <!-- Model dropdown mockup -->
           <div style="margin:14px 0;background:#0d0d1f;border-bottom:1px solid #1e2d45;border-radius:12px 12px 0 0;padding:10px 18px;display:flex;align-items:center;gap:12px;">
@@ -772,14 +772,23 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
             </div>
           </div>
 
-          <p style="margin-top:16px;">Watch the panel's <strong>OUTPUT LOG</strong> as it generates:</p>
-          <div class="code">📝  Create an enemy that chases the player
-🤖  anthropic/claude-sonnet-4.5
-⏳  Calling OpenRouter…
-✅  AI returned 7 commands → BP_Enemy
-🎉  BP_Enemy created — 7/7 commands OK
-📂  Content Browser → /Game/MCP/BP_Enemy</div>
-          <p style="margin-top:12px;color:var(--green);font-size:13px;font-weight:600;">✓ Open Content Browser → MCP folder. Blueprint is there, fully wired and compiled.</p>
+          <p style="margin-top:16px;">The AI replies directly in the chat panel:</p>
+          <div class="code">🤖  I'll create BP_Enemy as a Character with 3 variables
+    and a custom TakeDamage function.
+
+    ✅ create_blueprint: Created /Game/MCP/BP_Enemy
+    ✅ compile_blueprint: Compiled /Game/MCP/BP_Enemy
+    ✅ add_variable: Added Health (float) to /Game/MCP/BP_Enemy
+    ✅ add_variable: Added MoveSpeed (float) to /Game/MCP/BP_Enemy
+    ✅ add_variable: Added bIsChasing (bool) to /Game/MCP/BP_Enemy
+    ✅ add_function: Added TakeDamage_Custom
+    ✅ compile_blueprint: Compiled /Game/MCP/BP_Enemy
+
+    📋 HOW TO WIRE THIS BLUEPRINT:
+    1. Open BP_Enemy (Content Browser: /Game/MCP/BP_Enemy)
+    2. In EventGraph, right-click → "Event BeginPlay" → add it
+    ...</div>
+          <p style="margin-top:12px;color:var(--green);font-size:13px;font-weight:600;">✓ Open Content Browser → /Game/MCP/ to find the Blueprint. Wiring instructions are right there in the chat.</p>
         </div>
       </div>
 
@@ -954,12 +963,12 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
     <div class="dl-card">
       <div style="font-size:48px;margin-bottom:16px">⬇</div>
       <h3>Download the Plugin</h3>
-      <p>Drop the folder in, enable it, type prompts. That's it. No Node.js, no terminal, no compilation. MIT licensed, open source.</p>
+      <p>Drop the folder in, enable it, type prompts in the chat panel. No Node.js, no terminal, no compilation. MIT licensed, open source.</p>
       <div class="dl-links">
-        <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.7.1/MCPBlueprint-v1.7.1.zip" class="btn-primary">⬇ Download v1.7.1 (.zip)</a>
+        <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v2.0.0/MCPBlueprint-v2.0.0.zip" class="btn-primary">⬇ Download v2.0.0 (.zip)</a>
         <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-ghost">⭐ View Source on GitHub</a>
       </div>
-      <p style="margin-top:20px;font-size:12px;color:var(--text3)">Unreal Engine 5.1+ · Python Script Plugin · MIT License · No compilation required</p>
+      <p style="margin-top:20px;font-size:12px;color:var(--text3)">Unreal Engine 5.1+ · Python Script Plugin · MIT License · No compilation required · Chat UI at localhost:8080</p>
     </div>
   </div>
 </section>
@@ -973,7 +982,7 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
     <a class="footer-link" href="#plugin">Docs</a>
     <a class="footer-link" href="#translator">Translator</a>
   </div>
-  <div class="footer-copy">© 2025 Unreal Assistant · Hono + Cloudflare Pages</div>
+  <div class="footer-copy">© 2025 Unreal Assistant · v2.0.0 · Hono + Cloudflare Pages</div>
 </footer>
 
 <script>

@@ -504,27 +504,27 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
     <button class="nav-link" onclick="go('install')">Install</button>
     <button class="nav-link" onclick="go('translator')">Translator</button>
     <button class="nav-link" onclick="go('plugin')">Plugin Docs</button>
-    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v2.0.1/MCPBlueprint-v2.0.1.zip" class="dl-btn">⬇ Download Plugin</a>
+    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v3.0.0/MCPBlueprint-v3.0.0.zip" class="dl-btn">⬇ Download Plugin</a>
   </div>
 </nav>
 
 <!-- HERO -->
 <section class="hero">
-  <div class="badge"><span class="badge-dot"></span>Unreal Engine 5 · AI Blueprint Generator · v2.0.1</div>
-  <h1 class="hero-title">AI Blueprints,<br/>Inside Unreal Engine</h1>
+  <div class="badge"><span class="badge-dot"></span>Unreal Engine 5 · AI Blueprint Generator · v3.0.0 · C++ Node Placement</div>
+  <h1 class="hero-title">AI Blueprints,<br/>Fully Wired,<br/>Inside Unreal Engine</h1>
   <p class="hero-sub">
-    Describe game logic in plain English. The plugin runs <strong>directly inside Unreal Engine</strong>,
-    opens a <strong>persistent chat panel</strong> in your browser, calls AI, and creates Blueprints with variables and function stubs. Results appear in the chat — never the Output Log.
+    Describe game logic in plain English. The C++ plugin places <strong>nodes, wires pins, and compiles</strong>
+    automatically — a <strong>docked chat tab</strong> inside Unreal Engine. No browser tab, no Output Log reading, no manual wiring.
   </p>
   <div class="hero-actions">
-    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v2.0.1/MCPBlueprint-v2.0.1.zip" class="btn-primary">⬇ Download Plugin v2.0.1</a>
+    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v3.0.0/MCPBlueprint-v3.0.0.zip" class="btn-primary">⬇ Download Plugin v3.0.0</a>
     <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-ghost">⭐ GitHub Source</a>
   </div>
   <div class="stats">
-    <div class="stat"><div class="stat-num">3</div><div class="stat-label">Steps to Install</div></div>
-    <div class="stat"><div class="stat-num">0</div><div class="stat-label">Extra Software</div></div>
+    <div class="stat"><div class="stat-num">C++</div><div class="stat-label">Node Placement</div></div>
+    <div class="stat"><div class="stat-num">🔗</div><div class="stat-label">Auto Pin Wiring</div></div>
     <div class="stat"><div class="stat-num">UE5</div><div class="stat-label">Compatible</div></div>
-    <div class="stat"><div class="stat-num">Python</div><div class="stat-label">No Compilation</div></div>
+    <div class="stat"><div class="stat-num">Docked</div><div class="stat-label">Chat Tab in UE</div></div>
   </div>
 </section>
 
@@ -533,18 +533,18 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
   <div class="container">
     <div class="section-label">Architecture</div>
     <h2 class="section-title">How It Works</h2>
-    <p class="section-sub">Everything happens inside Unreal Engine. You type a prompt in the <strong>persistent chat panel</strong> — the plugin calls AI and creates the Blueprint. Replies appear in the chat, never the Output Log.</p>
+    <p class="section-sub">Everything happens inside Unreal Engine. You type a prompt in the <strong>docked chat tab</strong> — the AI generates a full node graph JSON, the C++ plugin places every node and wires every pin. Blueprint is compiled automatically.</p>
     <div class="arch-flow">
-      <div class="arch-node">
+      <div class="arch-node" style="border-color:rgba(168,85,247,.5)">
         <div class="arch-icon">💬</div>
-        <div class="arch-label">Chat Panel</div>
-        <div class="arch-sub">Browser UI at :8080</div>
+        <div class="arch-label">Docked Chat Tab</div>
+        <div class="arch-sub">SWebBrowser inside UE</div>
       </div>
       <div class="arch-arrow">→</div>
       <div class="arch-node" style="border-color:rgba(0,212,255,.35)">
-        <div class="arch-icon">🎮</div>
-        <div class="arch-label">UE5 Plugin</div>
-        <div class="arch-sub">Python · HTTP server</div>
+        <div class="arch-icon">🐍</div>
+        <div class="arch-label">Python HTTP Server</div>
+        <div class="arch-sub">port 8080 · OpenRouter</div>
       </div>
       <div class="arch-arrow">→</div>
       <div class="arch-node" style="border-color:rgba(168,85,247,.4)">
@@ -553,11 +553,24 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
         <div class="arch-sub">Claude / Gemini / GPT-4o</div>
       </div>
       <div class="arch-arrow">→</div>
+      <div class="arch-node" style="border-color:rgba(245,158,11,.5)">
+        <div class="arch-icon">⚙️</div>
+        <div class="arch-label">C++ TCP Server</div>
+        <div class="arch-sub">port 55557 · UK2Node_*</div>
+      </div>
+      <div class="arch-arrow">→</div>
       <div class="arch-node" style="border-color:rgba(16,185,129,.4)">
         <div class="arch-icon">📋</div>
         <div class="arch-label">Blueprint</div>
-        <div class="arch-sub">Assets + chat reply</div>
+        <div class="arch-sub">Nodes placed · Pins wired</div>
       </div>
+    </div>
+    <div style="margin-top:28px;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:12px;padding:18px 22px;font-size:13px;color:var(--text2);line-height:1.7;">
+      <strong style="color:#f59e0b;">⚙️ Why C++?</strong> &nbsp;
+      Unreal Engine's Python API has no bindings for <code>UK2Node_*</code> (the node classes that populate
+      Blueprint graphs). The only way to programmatically place nodes and wire pins is to call
+      <code>FBlueprintEditorUtils</code>, <code>FKismetEditorUtilities</code>, and
+      <code>Schema→TryCreateConnection</code> from compiled C++ — exactly what v3 does.
     </div>
   </div>
 </section>
@@ -567,42 +580,42 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
   <div class="container">
     <div class="section-label">Plugin Capabilities</div>
     <h2 class="section-title">What the Plugin Does</h2>
-    <p class="section-sub">A Python-based Unreal Editor plugin — no compilation needed. You type a prompt; it calls OpenAI and builds the Blueprint entirely inside the editor.</p>
+    <p class="section-sub">A compiled C++ + Python Unreal Editor plugin. You type a prompt; the AI generates a complete Blueprint graph JSON; the C++ module places every node, wires every pin, and compiles.</p>
     <div class="feat-grid">
       <div class="feat">
         <div class="feat-icon">💬</div>
-        <h3>Persistent Chat Panel</h3>
-        <p>A full chatbot UI opens in your browser at <code>localhost:8080</code>. AI replies appear as chat bubbles — never the Output Log. Conversation history is preserved. Dark theme, markdown rendering, copy buttons.</p>
-        <div class="tags"><span class="tag">localhost:8080/chat</span><span class="tag">Persistent history</span><span class="tag">Markdown rendering</span></div>
+        <h3>Docked Chat Tab (inside UE)</h3>
+        <p>The chat panel is an <code>SWebBrowser</code> widget registered as a dockable tab with <code>FGlobalTabmanager</code>. Opens automatically on startup. Re-open via the <strong>🤖 MCP AI</strong> toolbar button. No browser window needed.</p>
+        <div class="tags"><span class="tag">SWebBrowser</span><span class="tag">FGlobalTabmanager</span><span class="tag">Docked · Nomad tab</span></div>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">🔗</div>
+        <h3>Full Node Placement &amp; Wiring</h3>
+        <p>The C++ TCP server (port 55557) handles all graph operations: <code>UK2Node_Event</code>, <code>UK2Node_CallFunction</code> (Print, Delay), <code>UK2Node_IfThenElse</code> (Branch), <code>UK2Node_VariableGet/Set</code>, <code>UK2Node_ExecutionSequence</code>. Pins are wired via <code>Schema→TryCreateConnection</code>.</p>
+        <div class="tags"><span class="tag">UK2Node_Event</span><span class="tag">UK2Node_CallFunction</span><span class="tag">TryCreateConnection</span></div>
       </div>
       <div class="feat">
         <div class="feat-icon">📋</div>
         <h3>Blueprint Creation</h3>
-        <p>Creates UBlueprint assets under <code>/Game/MCP/</code>, sets parent class (Actor, Character, Pawn, etc.), and registers them in the Asset Registry instantly.</p>
-        <div class="tags"><span class="tag">asset_tools.create_asset</span><span class="tag">BlueprintEditorLibrary</span><span class="tag">/Game/MCP/</span></div>
-      </div>
-      <div class="feat">
-        <div class="feat-icon">🔗</div>
-        <h3>Node Graph Editing</h3>
-        <p>Adds nodes to EventGraph by Unreal name (Event BeginPlay, Branch, Print String, AI Move To, Timeline…), positions them on the graph, and allocates default pins.</p>
-        <div class="tags"><span class="tag">add_function_call_node</span><span class="tag">add_timeline_node</span><span class="tag">add_cast_node</span></div>
+        <p>Creates <code>UBlueprint</code> assets under <code>/Game/MCP/</code> with any parent class. Initial compile runs immediately so variables and nodes can be added without errors.</p>
+        <div class="tags"><span class="tag">UBlueprintFactory</span><span class="tag">IAssetTools</span><span class="tag">/Game/MCP/</span></div>
       </div>
       <div class="feat">
         <div class="feat-icon">📦</div>
         <h3>Variable Management</h3>
-        <p>Adds typed member variables (Boolean, Float, Int, String, Vector, Rotator) and sets default values on the CDO via FBlueprintEditorUtils.</p>
-        <div class="tags"><span class="tag">add_member_variable</span><span class="tag">Boolean·Float·Vector</span><span class="tag">set_default_value</span></div>
+        <p>Adds typed member variables (bool, int, float, string, name, text, vector, rotator, transform) via <code>FBlueprintEditorUtils::AddMemberVariable</code> with <code>FEdGraphPinType</code> construction. Default values set on the CDO.</p>
+        <div class="tags"><span class="tag">FBlueprintEditorUtils</span><span class="tag">FEdGraphPinType</span><span class="tag">CDO defaults</span></div>
       </div>
       <div class="feat">
         <div class="feat-icon">⚡</div>
         <h3>Auto Compile</h3>
-        <p>Calls <code>unreal.BlueprintEditorLibrary.compile_blueprint()</code> after every command. Saves the asset automatically. Errors returned in the JSON response.</p>
-        <div class="tags"><span class="tag">compile_blueprint()</span><span class="tag">save_asset()</span><span class="tag">Error feedback</span></div>
+        <p>Every <code>compile_blueprint</code> command calls <code>FBlueprintEditorUtils::ReconstructAllNodes</code> then <code>FKismetEditorUtilities::CompileBlueprint</code>. Asset is saved automatically. Compilation errors are returned in the JSON response.</p>
+        <div class="tags"><span class="tag">FKismetEditorUtilities</span><span class="tag">ReconstructAllNodes</span><span class="tag">Error feedback</span></div>
       </div>
       <div class="feat">
         <div class="feat-icon">🔄</div>
         <h3>Multi-Model Support</h3>
-        <p>Switch between 10 AI models in the chat panel dropdown: Claude Sonnet/Opus/Haiku, Gemini 2.5 Pro/Flash, DeepSeek V3/R1, and GPT-4o. Model preference is saved automatically.</p>
+        <p>Switch between 10 AI models in the chat panel: Claude Sonnet/Opus/Haiku, Gemini 2.5 Pro/Flash, DeepSeek V3/R1, GPT-4o. The updated system prompt instructs each model to output full node+wire JSON.</p>
         <div class="tags"><span class="tag">Claude Sonnet 4.5</span><span class="tag">Gemini 2.5 Pro</span><span class="tag">DeepSeek R1</span></div>
       </div>
     </div>
@@ -613,16 +626,16 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
 <section id="install" class="alt-bg">
   <div class="container">
     <div class="section-label">Installation</div>
-    <h2 class="section-title">3 Steps. That's It.</h2>
-    <p class="section-sub">No Node.js. No terminal. No compilation. No external server. Just download, drop the folder in, and type prompts.</p>
+    <h2 class="section-title">4 Steps. Including Compilation.</h2>
+    <p class="section-sub">v3 requires compiling the C++ plugin once. After that it's drop-in: copy the folder, compile, open UE, type prompts.</p>
 
     <!-- badges -->
     <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:28px;margin-bottom:44px;">
-      <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);font-size:13px;font-weight:700;color:var(--green);">✓ No Node.js</div>
-      <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);font-size:13px;font-weight:700;color:var(--green);">✓ No terminal</div>
-      <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);font-size:13px;font-weight:700;color:var(--green);">✓ No compilation</div>
-      <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);font-size:13px;font-weight:700;color:var(--green);">✓ Windows · Mac · Linux</div>
-      <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);font-size:13px;font-weight:700;color:var(--green);">✓ Unreal Engine 5.0+</div>
+      <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);font-size:13px;font-weight:700;color:var(--green);">✓ Full node placement</div>
+      <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);font-size:13px;font-weight:700;color:var(--green);">✓ Auto pin wiring</div>
+      <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);font-size:13px;font-weight:700;color:var(--green);">✓ Docked UE chat tab</div>
+      <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);font-size:13px;font-weight:700;color:#f59e0b;">⚙️ Requires Xcode + C++ project</div>
+      <div style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);font-size:13px;font-weight:700;color:var(--green);">✓ Unreal Engine 5.3+</div>
     </div>
 
     <div class="steps">
@@ -631,50 +644,25 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
       <div class="step">
         <div class="step-num">1</div>
         <div>
-          <h3>Download the zip and put the plugin folder in your project</h3>
+          <h3>Download and place the plugin folder</h3>
 
           <p><strong>1a — Download and extract</strong></p>
           <p>Click the button below. Extract the zip. You'll get a folder called <code>MCPBlueprint</code>.</p>
           <div style="margin-top:10px;margin-bottom:18px;">
-            <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v2.0.1/MCPBlueprint-v2.0.1.zip" class="btn-primary" style="display:inline-block;text-decoration:none;">⬇ Download MCPBlueprint-v2.0.1.zip</a>
+            <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v3.0.0/MCPBlueprint-v3.0.0.zip" class="btn-primary" style="display:inline-block;text-decoration:none;">⬇ Download MCPBlueprint-v3.0.0.zip</a>
           </div>
 
-          <p><strong>1b — Find your Unreal project folder</strong></p>
-          <p>This is the folder that contains your <code>.uproject</code> file. For example:</p>
-          <div class="code">C:\Users\You\Documents\Unreal Projects\MyGame\
-    MyGame.uproject    ← this file tells you you're in the right place
-    Content\
-    Config\</div>
+          <p><strong>1b — Copy MCPBlueprint into your project's Plugins folder</strong></p>
+          <div class="code">YourGame/
+├── YourGame.uproject
+└── Plugins/
+    └── MCPBlueprint/           ← copy here
+        ├── MCPBlueprint.uplugin
+        ├── BUILD.md
+        ├── Source/             ← C++ source
+        └── Content/Python/     ← Python server</div>
 
-          <p style="margin-top:16px;"><strong>1c — Create a Plugins folder</strong> <span style="color:var(--text3);font-size:13px;">(most projects don't have one yet — that's normal)</span></p>
-          <p>Inside your project folder, right-click on empty space:</p>
-          <div class="code">Windows: Right-click → New → Folder → name it "Plugins"
-Mac:     Right-click → New Folder → name it "Plugins"</div>
-          <p style="margin-top:10px;color:var(--text3);font-size:13px;">⚠️ It must be spelled exactly <code>Plugins</code> with a capital P. No spaces.</p>
-
-          <p style="margin-top:16px;"><strong>1d — Copy the whole MCPBlueprint folder into Plugins</strong></p>
-          <p>Take the entire <code>MCPBlueprint</code> folder — the folder itself, not just the files inside it — and copy it into <code>Plugins</code>.</p>
-
-          <!-- RIGHT vs WRONG -->
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px;">
-            <div>
-              <div style="font-size:12px;font-weight:700;color:var(--green);margin-bottom:6px;">✅ CORRECT</div>
-              <div class="code" style="font-size:11px;">Plugins\
-└── MCPBlueprint\
-    ├── MCPBlueprint.uplugin
-    └── Content\</div>
-              <p style="font-size:12px;color:var(--text3);margin-top:6px;">The whole MCPBlueprint folder is inside Plugins</p>
-            </div>
-            <div>
-              <div style="font-size:12px;font-weight:700;color:#f87171;margin-bottom:6px;">❌ WRONG</div>
-              <div class="code" style="font-size:11px;">Plugins\
-├── MCPBlueprint.uplugin
-└── Content\</div>
-              <p style="font-size:12px;color:var(--text3);margin-top:6px;">Don't put the files directly in Plugins — the folder needs to be there</p>
-            </div>
-          </div>
-
-          <p style="margin-top:14px;color:var(--green);font-size:13px;font-weight:600;">✓ Done when you can click into Plugins → MCPBlueprint and see MCPBlueprint.uplugin inside.</p>
+          <p style="margin-top:12px;color:var(--orange);font-size:13px;font-weight:600;">⚠️ Your project must have C++ source. Blueprint-only projects: Tools → New C++ Class inside the editor first.</p>
         </div>
       </div>
 
@@ -682,17 +670,31 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
       <div class="step">
         <div class="step-num">2</div>
         <div>
-          <h3>Enable the plugin in Unreal → restart</h3>
+          <h3>Compile the C++ plugin (required once)</h3>
           <p>
-            Open your project in Unreal Engine.<br/>
-            Go to <strong>Edit → Plugins</strong>. Search for <strong>"MCP Blueprint Generator"</strong>.<br/>
-            Check the box to enable it. Click <strong>Restart Now</strong>.
+            The plugin places <code>UK2Node_*</code> nodes — a C++ API with no Python bindings.
+            Compile it once using Xcode or the UBT command line.
           </p>
-          <p style="margin-top:12px;">After restart you'll see a new <strong>🤖 MCP AI</strong> button appear in the Level Editor toolbar (top of the editor). You'll also see in the Output Log:</p>
-          <div class="code">[MCPBlueprint] Server started → http://localhost:8080/chat
-[MCPBlueprint] UI module ready.</div>
-          <p style="margin-top:10px;color:var(--green);font-size:13px;font-weight:600;">✓ Plugin is running. Your browser opens automatically with the chat panel.</p>
-          <p style="margin-top:8px;color:var(--text3);font-size:12px;">The chat panel opens at <code>http://localhost:8080/chat</code> automatically. Click the <strong>🤖 MCP AI</strong> toolbar button at any time to re-open it.</p>
+
+          <p style="margin-top:12px;"><strong>Option A — Xcode (Mac)</strong></p>
+          <div class="code">cd /path/to/YourGame
+"/Users/Shared/Epic Games/UE_5.7/Engine/Build/BatchFiles/Mac/GenerateProjectFiles.sh" \\
+    -project="$(pwd)/YourGame.uproject" -game
+open YourGame.xcworkspace   # then press ⌘B</div>
+
+          <p style="margin-top:12px;"><strong>Option B — Command line (Mac/Linux)</strong></p>
+          <div class="code">"/Users/Shared/Epic Games/UE_5.7/Engine/Build/BatchFiles/Mac/Build.sh" \\
+    UnrealEditor Mac Development \\
+    -Project="/path/to/YourGame/YourGame.uproject" \\
+    -WaitMutex -NoHotReload</div>
+
+          <p style="margin-top:12px;"><strong>Option C — Windows</strong></p>
+          <div class="code">"C:\\Program Files\\Epic Games\\UE_5.7\\Engine\\Build\\BatchFiles\\Build.bat" ^
+    UnrealEditor Win64 Development ^
+    -Project="C:\\path\\to\\YourGame\\YourGame.uproject"</div>
+
+          <p style="margin-top:12px;color:var(--orange);font-size:13px;font-weight:600;">⚠️ Xcode 16+ / 26+: Edit <code>Apple_SDK.json</code> to raise MaxVersion — see BUILD.md.</p>
+          <p style="margin-top:8px;color:var(--green);font-size:13px;font-weight:600;">✓ Done when you see <code>Plugins/MCPBlueprint/Binaries/</code> with a .dylib or .dll.</p>
         </div>
       </div>
 
@@ -700,22 +702,17 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
       <div class="step">
         <div class="step-num">3</div>
         <div>
-          <h3>Enter your OpenRouter API key in the chat panel</h3>
-          <p>The chat panel opens in your browser automatically. If no API key is configured, a setup card appears at the top of the chat. Click <strong>⚙️ Settings</strong> to enter your key — it's saved permanently to <code>~/.mcp_blueprint_config.json</code>.</p>
-
-          <!-- Key field mockup -->
-          <div style="margin:14px 0;background:#0b0f1a;border:1.5px solid #1e2d45;border-radius:12px;padding:16px 18px;">
-            <div style="font-size:10px;font-weight:700;letter-spacing:.1em;color:#475569;margin-bottom:8px;">OPENROUTER API KEY</div>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <div style="flex:1;background:#111827;border:1.5px solid #2d3f60;border-radius:8px;padding:9px 14px;font-family:monospace;font-size:12px;color:#64748b;">sk-or-v1-••••••••••••••••••••••••••</div>
-              <div style="background:transparent;border:1px solid #1e2d45;border-radius:6px;padding:5px 12px;font-size:11px;color:#64748b;">Show</div>
-            </div>
-            <div style="margin-top:8px;font-size:11px;color:#a855f7;">→ Get a free key at openrouter.ai/keys</div>
-          </div>
-
-          <div style="margin-top:10px;background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.2);border-radius:10px;padding:14px 16px;font-size:13px;color:var(--text2);line-height:1.7;">
-            <strong style="color:var(--purple3);">Get a free OpenRouter key →</strong> <a href="https://openrouter.ai/keys" target="_blank" style="color:var(--purple3);font-weight:600;">openrouter.ai/keys</a> — one key gives you access to Claude, Gemini, DeepSeek, and GPT-4o. Keys start with <code>sk-or-v1-</code>.
-          </div>
+          <h3>Open the project — the chat tab appears automatically</h3>
+          <p>
+            Open your project in Unreal Engine.<br/>
+            Go to <strong>Edit → Plugins</strong>, search <strong>"MCP Blueprint Generator"</strong>, enable it, click <strong>Restart Now</strong>.
+          </p>
+          <p style="margin-top:12px;">After restart, the <strong>MCP Blueprint AI</strong> docked tab opens automatically inside the editor. You'll also see in the Output Log:</p>
+          <div class="code">[MCPBlueprint] TCP server listening on port 55557
+[MCPBlueprint] Server started → http://localhost:8080/chat
+[MCPBlueprint] UI module ready (docked tab mode).</div>
+          <p style="margin-top:10px;color:var(--green);font-size:13px;font-weight:600;">✓ Plugin is running. The chat panel is docked inside UE — no browser window.</p>
+          <p style="margin-top:8px;color:var(--text3);font-size:12px;">Re-open the tab at any time via the <strong>🤖 MCP AI</strong> toolbar button or <strong>Window → MCP Blueprint AI</strong>.</p>
         </div>
       </div>
 
@@ -723,72 +720,30 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
       <div class="step">
         <div class="step-num">4</div>
         <div>
-          <h3>Pick a model, type your prompt, press Send</h3>
-          <p>In the chat panel, select a model from the dropdown (Claude Sonnet 4.5 recommended), type your Blueprint description in the input box, and press <strong>Enter</strong> or click the Send button. The AI reply and execution results appear directly in the chat.</p>
+          <h3>Enter your OpenRouter API key and start prompting</h3>
+          <p>The docked chat tab opens at <code>localhost:8080/chat</code>. Click <strong>⚙️ Settings</strong> to enter your key.</p>
 
-          <!-- Model dropdown mockup -->
-          <div style="margin:14px 0;background:#0d0d1f;border-bottom:1px solid #1e2d45;border-radius:12px 12px 0 0;padding:10px 18px;display:flex;align-items:center;gap:12px;">
-            <span style="font-size:10px;font-weight:700;letter-spacing:.08em;color:#64748b;">MODEL</span>
-            <div style="background:#1a2744;border:1.5px solid #2d3f60;border-radius:20px;padding:6px 36px 6px 14px;font-size:13px;font-weight:600;color:#c4b5fd;min-width:240px;">Claude Sonnet 4.5  ★  (recommended)</div>
-          </div>
-          <div style="background:#0b0f1a;border:1.5px solid #1e2d45;border-top:none;border-radius:0 0 12px 12px;padding:14px 18px;">
-            <div style="font-size:10px;font-weight:700;letter-spacing:.1em;color:#475569;margin-bottom:8px;">DESCRIBE THE BLUEPRINT YOU WANT</div>
-            <div style="background:#111827;border:1.5px solid #2d3f60;border-radius:8px;padding:10px 14px;font-size:13px;color:#64748b;min-height:56px;">Create an enemy AI that chases the player and has 100 health</div>
-            <div style="margin-top:10px;background:linear-gradient(90deg,#9333ea,#4f46e5);border-radius:8px;padding:12px 18px;text-align:center;font-size:13px;font-weight:700;color:white;">⚡  Generate Blueprint</div>
+          <div style="margin:14px 0;background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.2);border-radius:10px;padding:14px 16px;font-size:13px;color:var(--text2);line-height:1.7;">
+            <strong style="color:var(--purple3);">Get a free OpenRouter key →</strong> <a href="https://openrouter.ai/keys" target="_blank" style="color:var(--purple3);font-weight:600;">openrouter.ai/keys</a> — one key gives access to Claude, Gemini, DeepSeek, and GPT-4o. Keys start with <code>sk-or-v1-</code>.
           </div>
 
-          <!-- Available models grid -->
-          <div style="margin:18px 0 6px;font-weight:600;font-size:13px;color:var(--text2);">Available models in the dropdown:</div>
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin-top:8px;">
-            <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
-              <div style="font-size:10px;font-weight:700;color:var(--purple3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">Claude (Anthropic)</div>
-              <ul style="margin:0;padding-left:16px;font-size:12px;color:var(--text3);line-height:2;">
-                <li>Claude Sonnet 4.5 ★</li><li>Claude Opus 4.5 (most capable)</li>
-                <li>Claude 3.7 Sonnet</li><li>Claude 3.7 Sonnet (Thinking)</li>
-                <li>Claude Haiku 4.5 (fastest)</li>
-              </ul>
-            </div>
-            <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
-              <div style="font-size:10px;font-weight:700;color:var(--cyan);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">Gemini (Google)</div>
-              <ul style="margin:0;padding-left:16px;font-size:12px;color:var(--text3);line-height:2;">
-                <li>Gemini 2.5 Pro ★</li><li>Gemini 2.5 Flash</li>
-                <li>Gemini 3.1 Pro Preview</li><li>Gemini 3 Flash Preview</li>
-                <li>Gemini 2.0 Flash</li>
-              </ul>
-            </div>
-            <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
-              <div style="font-size:10px;font-weight:700;color:var(--green);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">DeepSeek</div>
-              <ul style="margin:0;padding-left:16px;font-size:12px;color:var(--text3);line-height:2;">
-                <li>DeepSeek V3.2 ★</li><li>DeepSeek V3.2 Speciale</li>
-                <li>DeepSeek R1 0528 (reasoning)</li><li>DeepSeek R1</li>
-                <li>DeepSeek R1T2 Chimera</li>
-              </ul>
-            </div>
-            <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
-              <div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">GPT-4o (OpenAI)</div>
-              <ul style="margin:0;padding-left:16px;font-size:12px;color:var(--text3);line-height:2;">
-                <li>GPT-4o</li><li>GPT-4o Mini (most affordable)</li>
-              </ul>
-            </div>
-          </div>
+          <p style="margin-top:14px;">Type your Blueprint description — the AI now generates full node + wiring JSON:</p>
+          <div class="code">🤖  Building BP_Enemy: Character with Health variable,
+    BeginPlay print, and Tick-driven Branch.
 
-          <p style="margin-top:16px;">The AI replies directly in the chat panel:</p>
-          <div class="code">🤖  I'll create BP_Enemy as a Character with 3 variables
-    and a custom TakeDamage function.
-
-    ✅ create_blueprint: Created /Game/MCP/BP_Enemy
+    ✅ create_blueprint:  Created /Game/MCP/BP_Enemy
     ✅ compile_blueprint: Compiled /Game/MCP/BP_Enemy
-    ✅ add_variable: Added Health (float) to /Game/MCP/BP_Enemy
-    ✅ add_variable: Added MoveSpeed (float) to /Game/MCP/BP_Enemy
-    ✅ add_variable: Added bIsChasing (bool) to /Game/MCP/BP_Enemy
-    ✅ add_function: Added TakeDamage_Custom
+    ✅ add_variable:      Health (float) added
+    ✅ add_node:          Event_0  (BeginPlay)
+    ✅ add_node:          CallFunction_0  (Print "Enemy spawned!")
+    ✅ connect_nodes:     Event_0.then → CallFunction_0.execute
+    ✅ add_node:          Event_1  (Tick)
+    ✅ add_node:          IfThenElse_0  (Branch)
+    ✅ connect_nodes:     Event_1.then → IfThenElse_0.execute
     ✅ compile_blueprint: Compiled /Game/MCP/BP_Enemy
 
-    📋 HOW TO WIRE THIS BLUEPRINT:
-    1. Open BP_Enemy (Content Browser: /Game/MCP/BP_Enemy)
-    2. In EventGraph, right-click → "Event BeginPlay" → add it
-    ...</div>
-          <p style="margin-top:12px;color:var(--green);font-size:13px;font-weight:600;">✓ Open Content Browser → /Game/MCP/ to find the Blueprint. Wiring instructions are right there in the chat.</p>
+    Blueprint /Game/MCP/BP_Enemy is ready — open it to see the wired graph.</div>
+          <p style="margin-top:12px;color:var(--green);font-size:13px;font-weight:600;">✓ Open Content Browser → /Game/MCP/ and double-click BP_Enemy to see the wired, compiled graph.</p>
         </div>
       </div>
 
@@ -811,7 +766,9 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
     <div style="margin-top:16px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2);border-radius:14px;padding:24px 28px;">
       <div style="font-size:14px;font-weight:700;color:var(--green);margin-bottom:6px;">🙋 Stuck?</div>
       <p style="font-size:13px;color:var(--text2);line-height:1.7;margin:0;">
-        Open an issue on <a href="https://github.com/mkbrown261/unreal-assistant/issues" target="_blank" style="color:var(--purple3);">GitHub</a> and paste what you see in the Output Log.
+        See <a href="https://github.com/mkbrown261/unreal-assistant/blob/main/Plugins/MCPBlueprint/BUILD.md" target="_blank" style="color:var(--purple3);">BUILD.md</a> for Xcode fixes and compilation details,
+        or open an issue on <a href="https://github.com/mkbrown261/unreal-assistant/issues" target="_blank" style="color:var(--purple3);">GitHub</a>.
+        Prefer no compilation? Use <a href="https://github.com/mkbrown261/unreal-assistant/releases/tag/v2.0.1" style="color:var(--purple3);">v2.0.1</a> (Python-only).
       </p>
     </div>
 
@@ -889,8 +846,8 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
 <section id="plugin" class="alt-bg">
   <div class="container">
     <div class="section-label">Plugin Reference</div>
-    <h2 class="section-title">Command Schema</h2>
-    <p class="section-sub">All six Blueprint commands the AI can generate. These are sent directly from the plugin to Unreal's Blueprint editor API.</p>
+    <h2 class="section-title">Command Schema (v3)</h2>
+    <p class="section-sub">All commands the AI generates. Routed: <code>add_node</code> + <code>connect_nodes</code> → C++ TCP server (port 55557); others → Python executor or C++.</p>
     <div class="feat-grid" style="margin-top:40px">
       <div class="feat">
         <div class="feat-icon">📦</div>
@@ -898,30 +855,8 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
         <div class="code" style="margin-top:10px;font-size:11px">{
   "action": "create_blueprint",
   "name": "BP_MyActor",
-  "parent_class": "Actor"
-}</div>
-      </div>
-      <div class="feat">
-        <div class="feat-icon">➕</div>
-        <h3>add_node</h3>
-        <div class="code" style="margin-top:10px;font-size:11px">{
-  "action": "add_node",
-  "blueprint": "BP_MyActor",
-  "node": "Event BeginPlay",
-  "id": "node_0",
-  "x": 0, "y": 0
-}</div>
-      </div>
-      <div class="feat">
-        <div class="feat-icon">🔗</div>
-        <h3>connect_nodes</h3>
-        <div class="code" style="margin-top:10px;font-size:11px">{
-  "action": "connect_nodes",
-  "blueprint": "BP_MyActor",
-  "from_node": "node_0",
-  "from_pin": "Then",
-  "to_node": "node_1",
-  "to_pin": "Execute"
+  "parent_class": "Actor",
+  "path": "/Game/MCP"
 }</div>
       </div>
       <div class="feat">
@@ -929,29 +864,66 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
         <h3>add_variable</h3>
         <div class="code" style="margin-top:10px;font-size:11px">{
   "action": "add_variable",
-  "blueprint": "BP_MyActor",
-  "variable_name": "Health",
-  "variable_type": "Float",
-  "default_value": 100.0
+  "blueprint_path": "/Game/MCP/BP_MyActor",
+  "var_name": "Health",
+  "var_type": "float",
+  "default_value": "100.0"
 }</div>
       </div>
       <div class="feat">
-        <div class="feat-icon">✏️</div>
-        <h3>set_variable</h3>
+        <div class="feat-icon">➕</div>
+        <h3>add_node (C++)</h3>
         <div class="code" style="margin-top:10px;font-size:11px">{
-  "action": "set_variable",
-  "blueprint": "BP_MyActor",
-  "variable_name": "Health",
-  "value": "75"
-}</div>
+  "action": "add_node",
+  "blueprint_name": "BP_MyActor",
+  "node_type": "Event",
+  "event_type": "BeginPlay",
+  "pos_x": 0, "pos_y": 0
+}
+// → returns { "node_id": "Event_0" }
+
+// node_type values:
+// Event · Print · Branch
+// VariableGet · VariableSet
+// Sequence · Delay · CallFunction</div>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">🔗</div>
+        <h3>connect_nodes (C++)</h3>
+        <div class="code" style="margin-top:10px;font-size:11px">{
+  "action": "connect_nodes",
+  "blueprint_name": "BP_MyActor",
+  "source_node_id": "Event_0",
+  "source_pin": "then",
+  "target_node_id": "CallFunction_0",
+  "target_pin": "execute"
+}
+// pins: then · execute
+// true · false · condition</div>
       </div>
       <div class="feat">
         <div class="feat-icon">⚡</div>
         <h3>compile_blueprint</h3>
         <div class="code" style="margin-top:10px;font-size:11px">{
   "action": "compile_blueprint",
-  "name": "BP_MyActor"
-}</div>
+  "path": "/Game/MCP/BP_MyActor"
+}
+// Calls:
+// FBlueprintEditorUtils::ReconstructAllNodes
+// FKismetEditorUtilities::CompileBlueprint
+// UEditorAssetLibrary::SaveAsset</div>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">🔍</div>
+        <h3>get_status</h3>
+        <div class="code" style="margin-top:10px;font-size:11px">{
+  "action": "get_status"
+}
+// Returns:
+// { "success": true,
+//   "version": "3.0.0",
+//   "server": "MCPBlueprint C++ TCP server",
+//   "port": "55557" }</div>
       </div>
     </div>
   </div>
@@ -963,12 +935,12 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
     <div class="dl-card">
       <div style="font-size:48px;margin-bottom:16px">⬇</div>
       <h3>Download the Plugin</h3>
-      <p>Drop the folder in, enable it, type prompts in the chat panel. No Node.js, no terminal, no compilation. MIT licensed, open source.</p>
+      <p>Drop the folder in, compile once, type prompts — the plugin places every node and wires every pin. MIT licensed, open source.</p>
       <div class="dl-links">
-        <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v2.0.1/MCPBlueprint-v2.0.1.zip" class="btn-primary">⬇ Download v2.0.1 (.zip)</a>
+        <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v3.0.0/MCPBlueprint-v3.0.0.zip" class="btn-primary">⬇ Download v3.0.0 (.zip)</a>
         <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-ghost">⭐ View Source on GitHub</a>
       </div>
-      <p style="margin-top:20px;font-size:12px;color:var(--text3)">Unreal Engine 5.1+ · Python Script Plugin · MIT License · No compilation required · Chat UI at localhost:8080</p>
+      <p style="margin-top:20px;font-size:12px;color:var(--text3)">Unreal Engine 5.3+ · C++ + Python · MIT License · Docked chat tab · Full node placement &amp; wiring · localhost:8080</p>
     </div>
   </div>
 </section>
@@ -982,7 +954,7 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
     <a class="footer-link" href="#plugin">Docs</a>
     <a class="footer-link" href="#translator">Translator</a>
   </div>
-  <div class="footer-copy">© 2025 Unreal Assistant · v2.0.1 · Hono + Cloudflare Pages</div>
+  <div class="footer-copy">© 2025 Unreal Assistant · v3.0.0 · Hono + Cloudflare Pages</div>
 </footer>
 
 <script>

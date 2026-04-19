@@ -1,6 +1,14 @@
 """
-MCP Blueprint Server v2.0.0
+MCP Blueprint Server v3.0.0
 Persistent HTTP server running inside Unreal Engine (port 8080).
+
+Architecture (v3):
+  Chat UI (this server at :8080)
+    → Python HTTP server (this file, runs inside UE)
+      → C++ TCP server at :55557  ← handles ALL Blueprint graph operations
+        (UK2Node placement, pin wiring, compile)
+    → Python blueprint_executor    ← fallback for create/variable/compile
+                                      when C++ server is unavailable
 
 Endpoints:
   GET  /                — redirect to /chat
@@ -10,8 +18,8 @@ Endpoints:
   POST /config          — update API key / model
   GET  /history         — return conversation history
   POST /history/clear   — wipe conversation history
-  GET  /unreal/status   — health check (legacy)
-  POST /unreal/execute  — direct command execution (legacy)
+  GET  /unreal/status   — health check
+  POST /unreal/execute  — direct command execution
 """
 
 import json
@@ -117,58 +125,79 @@ MODELS = [
 # System prompt
 # ---------------------------------------------------------------------------
 
-CHAT_SYSTEM_PROMPT = """You are an Unreal Engine 5 Blueprint assistant running INSIDE the Unreal Editor.
+CHAT_SYSTEM_PROMPT = “””You are an Unreal Engine 5 Blueprint assistant running INSIDE the Unreal Editor.
+You have access to a C++ plugin that can place nodes, wire pins, and compile Blueprints automatically.
 
 When the user asks you to create or modify a Blueprint:
 1. Briefly explain what you're building (1-2 sentences).
-2. Emit ONE ```json ... ``` block with all Blueprint commands.
-3. After the JSON, summarize what was created and give exact wiring steps.
+2. Emit ONE ```json ... ``` block with ALL Blueprint commands — including nodes and connections.
+3. After the JSON, confirm what was built.
 
-CRITICAL JSON FIELD RULES — follow exactly or Blueprint creation will fail:
-- create_blueprint:  fields are "name", "parent_class", "path"
-- compile_blueprint: field is "path" (full asset path: /Game/MCP/BP_Name)
-- add_variable:      fields are "blueprint_path", "var_name", "var_type", "default_value"
-- add_function:      fields are "blueprint_path", "function_name"
+FULL COMMAND SCHEMA (v3 — C++ node placement):
 
-EXACT SCHEMA (copy this pattern every time):
+create_blueprint:
+  {“action”: “create_blueprint”, “name”: “BP_Name”, “parent_class”: “Actor”, “path”: “/Game/MCP”}
+
+add_variable:
+  {“action”: “add_variable”, “blueprint_path”: “/Game/MCP/BP_Name”, “var_name”: “Health”, “var_type”: “float”, “default_value”: “100.0”}
+
+add_node:
+  {“action”: “add_node”, “blueprint_name”: “BP_Name”, “node_type”: “Event”, “event_type”: “BeginPlay”, “pos_x”: 0, “pos_y”: 0}
+  {“action”: “add_node”, “blueprint_name”: “BP_Name”, “node_type”: “Print”, “message”: “Hello!”, “pos_x”: 250, “pos_y”: 0}
+  {“action”: “add_node”, “blueprint_name”: “BP_Name”, “node_type”: “Branch”, “pos_x”: 500, “pos_y”: 0}
+  {“action”: “add_node”, “blueprint_name”: “BP_Name”, “node_type”: “VariableGet”, “variable_name”: “Health”, “pos_x”: 300, “pos_y”: 100}
+  {“action”: “add_node”, “blueprint_name”: “BP_Name”, “node_type”: “VariableSet”, “variable_name”: “Health”, “pos_x”: 600, “pos_y”: 0}
+  {“action”: “add_node”, “blueprint_name”: “BP_Name”, “node_type”: “Sequence”, “pos_x”: 400, “pos_y”: 0}
+  {“action”: “add_node”, “blueprint_name”: “BP_Name”, “node_type”: “Delay”, “pos_x”: 400, “pos_y”: 0}
+  {“action”: “add_node”, “blueprint_name”: “BP_Name”, “node_type”: “CallFunction”, “function_name”: “PrintString”, “pos_x”: 250, “pos_y”: 0}
+
+connect_nodes:
+  {“action”: “connect_nodes”, “blueprint_name”: “BP_Name”, “source_node_id”: “Event_0”, “source_pin”: “then”, “target_node_id”: “CallFunction_0”, “target_pin”: “execute”}
+
+compile_blueprint:
+  {“action”: “compile_blueprint”, “path”: “/Game/MCP/BP_Name”}
+
+NODE IDs: add_node returns a node_id like “Event_0”, “CallFunction_0”, “IfThenElse_0”.
+Use these IDs in connect_nodes.
+
+PIN NAMES (use these exactly):
+  Exec output: “then”
+  Exec input:  “execute”
+  Branch true: “true”  Branch false: “false”
+  Branch condition: “condition”
+  Sequence outputs: “then 0”, “then 1”, etc.
+
+ORDERING RULES:
+1. create_blueprint first
+2. compile_blueprint immediately after create (before add_variable)
+3. add_variable for all variables
+4. add_node for all nodes (use pos_x +300 per step, pos_y 0 for main flow, +200 for branches)
+5. connect_nodes for all wires
+6. compile_blueprint last
+
+EXAMPLE (enemy that prints on BeginPlay):
 ```json
 {
-  "commands": [
-    {"action": "create_blueprint", "name": "BP_Enemy", "parent_class": "Character", "path": "/Game/MCP"},
-    {"action": "compile_blueprint", "path": "/Game/MCP/BP_Enemy"},
-    {"action": "add_variable", "blueprint_path": "/Game/MCP/BP_Enemy", "var_name": "Health", "var_type": "float", "default_value": "100.0"},
-    {"action": "add_variable", "blueprint_path": "/Game/MCP/BP_Enemy", "var_name": "MoveSpeed", "var_type": "float", "default_value": "300.0"},
-    {"action": "add_function", "blueprint_path": "/Game/MCP/BP_Enemy", "function_name": "TakeDamage_Custom"},
-    {"action": "compile_blueprint", "path": "/Game/MCP/BP_Enemy"}
+  “commands”: [
+    {“action”: “create_blueprint”, “name”: “BP_Enemy”, “parent_class”: “Character”, “path”: “/Game/MCP”},
+    {“action”: “compile_blueprint”, “path”: “/Game/MCP/BP_Enemy”},
+    {“action”: “add_variable”, “blueprint_path”: “/Game/MCP/BP_Enemy”, “var_name”: “Health”, “var_type”: “float”, “default_value”: “100.0”},
+    {“action”: “add_node”, “blueprint_name”: “BP_Enemy”, “node_type”: “Event”, “event_type”: “BeginPlay”, “pos_x”: 0, “pos_y”: 0},
+    {“action”: “add_node”, “blueprint_name”: “BP_Enemy”, “node_type”: “Print”, “message”: “Enemy spawned!”, “pos_x”: 300, “pos_y”: 0},
+    {“action”: “connect_nodes”, “blueprint_name”: “BP_Enemy”, “source_node_id”: “Event_0”, “source_pin”: “then”, “target_node_id”: “CallFunction_0”, “target_pin”: “execute”},
+    {“action”: “compile_blueprint”, “path”: “/Game/MCP/BP_Enemy”}
   ]
 }
 ```
 
-RULES:
-- ALWAYS compile_blueprint immediately after create_blueprint (before adding variables).
-- ALWAYS compile_blueprint again as the final command.
-- "path" for create_blueprint is the FOLDER: /Game/MCP
-- "path" for compile_blueprint is the FULL ASSET PATH: /Game/MCP/BP_Name
-- "blueprint_path" for add_variable and add_function is the FULL ASSET PATH: /Game/MCP/BP_Name
-- Never mix up "path" and "blueprint_path" — wrong field = Blueprint not found.
-- All blueprints go in /Game/MCP/ unless user specifies otherwise.
-
-Supported parent classes: Actor, Character, Pawn, GameModeBase, PlayerController,
+Supported parent_class values: Actor, Character, Pawn, GameModeBase, PlayerController,
   ActorComponent, SceneComponent, GameInstance, GameState, PlayerState, HUD,
   UserWidget, AnimInstance, BlueprintFunctionLibrary
 
-Supported var_type values: bool, int, float, string, vector, rotator, transform
-
-After the JSON block, give wiring instructions like this:
-
-📋 HOW TO WIRE THIS BLUEPRINT:
-1. Open /Game/MCP/BP_Name in Content Browser (double-click)
-2. In EventGraph: right-click → search “Event BeginPlay” → add it
-3. Drag from BeginPlay exec pin → search “Print String” → connect
-(use exact Unreal node names so the user can find them by searching)
+Supported var_type: bool, int, float, string, name, text, vector, rotator, transform
 
 NEVER tell the user to check the Output Log. All results appear in this chat.
-Respond conversationally and clearly."""
+Respond conversationally. After the JSON block confirm what was built.”””
 
 # ---------------------------------------------------------------------------
 # Conversation history (single-user, in-memory)
@@ -238,29 +267,106 @@ def _extract_json_commands(text):
     return None
 
 
+# ---------------------------------------------------------------------------
+# C++ TCP server bridge (port 55557)
+# ---------------------------------------------------------------------------
+
+_CPP_SERVER_AVAILABLE = None  # None = not yet checked, True/False after first call
+
+
+def _call_cpp_server(cmd: dict, timeout: int = 10) -> dict:
+    """Send a single command to the C++ TCP server on port 55557 and return the result dict."""
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", 55557), timeout=timeout) as s:
+            msg = json.dumps(cmd) + "\n"
+            s.sendall(msg.encode("utf-8"))
+            buf = b""
+            while not buf.endswith(b"\n"):
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                buf += chunk
+            return json.loads(buf.decode("utf-8").strip())
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def _cpp_server_alive() -> bool:
+    """Return True if the C++ TCP server is reachable."""
+    global _CPP_SERVER_AVAILABLE
+    if _CPP_SERVER_AVAILABLE is True:
+        return True
+    result = _call_cpp_server({"action": "get_status"}, timeout=2)
+    _CPP_SERVER_AVAILABLE = result.get("success", False)
+    return _CPP_SERVER_AVAILABLE
+
+
+# Commands that require C++ graph manipulation (Python has no bindings for these)
+_CPP_ONLY_ACTIONS = {"add_node", "connect_nodes", "wire_pins"}
+
+# Commands Python can handle directly (create/variable/compile work fine in Python)
+_PYTHON_ACTIONS = {"create_blueprint", "compile_blueprint", "add_variable",
+                    "add_member_variable", "add_function", "add_function_graph",
+                    "blueprint_instructions"}
+
+
 def _execute_commands(commands):
-    """Execute blueprint command list. Returns a human-readable summary."""
+    """
+    Execute blueprint command list.
+    Routes:
+      - add_node / connect_nodes → C++ TCP server (port 55557)
+      - everything else → Python blueprint_executor (or C++ if available)
+    Returns a human-readable summary string.
+    """
+    cpp_alive = _cpp_server_alive()
+    results = []
+
     try:
         import blueprint_executor  # available inside Unreal
-        results = []
-        for cmd in commands:
-            action = cmd.get("action", "unknown")
-            try:
+        python_available = True
+    except ImportError:
+        blueprint_executor = None
+        python_available = False
+
+    for cmd in commands:
+        action = cmd.get("action", "unknown").lower()
+        try:
+            # ── Route to C++ server ────────────────────────────────────────
+            if cpp_alive and (action in _CPP_ONLY_ACTIONS or action not in _PYTHON_ACTIONS):
+                r = _call_cpp_server(cmd)
+                if r.get("success"):
+                    msg = r.get("message", r.get("node_id", "ok"))
+                    results.append(f"  \u2705 {action}: {msg}")
+                    # If it was add_node, stash the returned node_id back into cmd
+                    # so subsequent connect_nodes commands can reference it.
+                    if action == "add_node" and "node_id" in r:
+                        cmd["_returned_node_id"] = r["node_id"]
+                else:
+                    err = r.get("error", "unknown error")
+                    results.append(f"  \u26a0\ufe0f {action} (C++): {err}")
+                    # Fall through to Python if C++ fails on a create/compile
+                    if action in _PYTHON_ACTIONS and python_available:
+                        r2 = blueprint_executor.execute_command(cmd)
+                        results[-1] = f"  \u2705 {action} (py fallback): {r2}"
+
+            # ── Route to Python executor ───────────────────────────────────
+            elif python_available:
                 r = blueprint_executor.execute_command(cmd)
                 results.append(f"  \u2705 {action}: {r}")
-            except Exception as exc:
-                results.append(f"  \u274c {action}: {exc}")
-                # Log to UE output log as well for debugging
-                try:
-                    import unreal
-                    unreal.log_error(f"[MCPBlueprint] {action} failed: {exc}")
-                except Exception:
-                    pass
-        return "\n".join(results) if results else "No commands executed."
-    except ImportError:
-        return "(blueprint_executor unavailable \u2014 running outside Unreal)"
-    except Exception as exc:
-        return f"\u274c Executor error: {exc}"
+
+            else:
+                results.append(f"  \u26a0\ufe0f {action}: no executor available (running outside Unreal?)")
+
+        except Exception as exc:
+            results.append(f"  \u274c {action}: {exc}")
+            try:
+                import unreal
+                unreal.log_error(f"[MCPBlueprint] {action} failed: {exc}")
+            except Exception:
+                pass
+
+    return "\n".join(results) if results else "No commands executed."
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +439,11 @@ class _Handler(BaseHTTPRequestHandler):
             self._html_response(200, _get_chat_ui_html())
 
         elif path == "/unreal/status":
-            self._json_response(200, {"status": "ok", "version": "2.0.0"})
+            self._json_response(200, {
+                "status": "ok",
+                "version": "3.0.0",
+                "cpp_server": _cpp_server_alive(),
+            })
 
         elif path == "/config":
             cfg = _load_config()

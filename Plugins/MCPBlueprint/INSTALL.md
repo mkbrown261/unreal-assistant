@@ -1,5 +1,5 @@
 # MCP Blueprint Generator — Installation Guide
-## Version 1.5.0 · UE 5.7.4 · macOS (Apple Silicon)
+## Version 1.7.0 · UE 5.7.4 · macOS (Apple Silicon)
 
 ---
 
@@ -11,7 +11,9 @@
 
 ## Install
 
-1. **Copy** the entire `MCPBlueprint` folder into your project's `Plugins/` directory:
+1. **Delete** any old `MCPBlueprint` folder from `Plugins/` first.
+
+2. **Copy** the `MCPBlueprint` folder into your project's `Plugins/` directory:
    ```
    YourGame/
    └── Plugins/
@@ -23,9 +25,9 @@
                └── blueprint_executor.py
    ```
 
-2. In Unreal Editor: **Edit → Plugins → search "MCP"** → enable → **Restart**.
+3. In Unreal Editor: **Edit → Plugins → search "MCP"** → Enable → **Restart**.
 
-3. After restart, look for **"MCP AI"** in the Level Editor menu bar.
+4. After restart, look for **"MCP AI"** in the Level Editor menu bar (give it 5–10 s).
 
 ---
 
@@ -33,51 +35,87 @@
 
 1. Click **MCP AI → Generate Blueprint with AI…**
 2. A dialog asks for your **OpenRouter API key**:
-   - Go to https://openrouter.ai/keys, create a free key.
+   - Go to https://openrouter.ai/keys, create a free account, click **Create Key**.
    - Paste it (starts with `sk-or-v1-`).
-3. Select a model (default: Claude Sonnet 4.5, recommended).
+3. Select an AI model (default: Claude Sonnet 4.5).
 4. Describe your Blueprint in plain English.
-5. Wait ~10-30 s — the Blueprint appears under **`/Game/MCP/`**.
+5. Wait ~10–30 s — the Blueprint appears in **`/Game/MCP/`** in the Content Browser.
+6. **Read the Output Log** for step-by-step wiring instructions.
 
 ---
 
-## What's New in v1.5.0
+## What's New in v1.7.0 — The Honest Fix
 
-### Bug Fixes
-- **ZenLoader / FlushAsyncLoading crash — FIXED**
-  All Unreal asset APIs now run on the **main game thread** via a
-  permanent Slate tick queue (`_main_queue`).  Previously, blueprint
-  commands were dispatched from a background thread using
-  `unreal.call_on_game_thread`, which does **not exist** in UE 5.7.
-  Calling editor APIs from the wrong thread caused:
-  ```
-  RuntimeError: The current loader 'ZenLoader' is unable to
-  FlushAsyncLoading from the current thread
-  ```
-  This is now fixed: the HTTP fetch runs on a daemon thread (so the
-  editor stays responsive), then posts the commands to `_main_queue`,
-  which the Slate tick drains on the game thread every frame.
+### Root Cause
+Previous versions (v1.5.0, v1.6.0) generated `add_node` and `connect_nodes`
+commands because those *sound* like they should work. **They don't exist** in
+the UE 5.7 Python API. The `BlueprintEditorLibrary` has no node-placement
+functions. Every `add_node`/`connect_nodes` call silently returned a warning
+(not an error), so the batch reported "success" while the Blueprint stayed empty.
 
-- **`/Game/MCP` directory creation — FIXED**
-  `create_blueprint` now explicitly calls
-  `EditorAssetLibrary.make_directory("/Game/MCP")` before every
-  blueprint creation, preventing "package does not exist on disk" errors.
+### What Changed
+- **System prompt rewritten**: The AI now generates only commands that UE 5.7
+  Python can actually execute:
+  - `create_blueprint` — creates the Blueprint asset
+  - `add_variable` — adds member variables with types and defaults
+  - `add_function` — creates named function stubs (appear in My Blueprint panel)
+  - `blueprint_instructions` — logs step-by-step wiring guidance to Output Log
+  - `compile_blueprint` — compiles and saves
 
-- **Parent class resolution — IMPROVED**
-  Added `ActorComponent`, `SceneComponent`, `AIController`, `UserWidget`,
-  `GameInstance`, and many more. The AI can now say
-  `"parent_class": "ActorComponent"` and it will work.
+- **blueprint_instructions**: After generation, check the Output Log
+  (Window → Output Log, filter by `MCPBlueprint`) for exact node names and
+  wiring steps to implement in the Blueprint editor.
 
-### Previous Fixes (v1.4.0 — preserved)
-- Menu click works reliably via `ToolMenuEntryScript.execute()` override.
-- `@unreal.uclass()` classes defined at module level (not inside exec).
-- No `unreal.MCPModelEnum` (removed — doesn't exist in any UE version).
+- **Dialog re-open bug fixed**: The `_dialog_open` flag was getting stuck `True`
+  when the completion handler tried to re-open the panel from inside the panel's
+  own `finally` block. Fixed by posting re-opens to `_main_queue`.
+
+- **API key persistence fixed**: Related to the above — the panel was skipping
+  the key-check step when `_dialog_open` was stuck. Now guaranteed to reset.
+
+- **No more "EventGraph not found" errors**: Those errors were from the old
+  `get_graphs()` calls which don't exist in UE 5.7. Removed entirely.
+
+---
+
+## What the Plugin Creates
+
+For a prompt like *"Create an actor component that allows the player to fly"*:
+
+**In the Content Browser (`/Game/MCP/`):**
+- `BP_FlyComponent` — ActorComponent Blueprint with:
+  - `FlySpeed` (Float) variable, default 600.0
+  - `IsFlying` (Boolean) variable, default false
+  - `ActivateFlight()` function stub
+  - `DeactivateFlight()` function stub
+
+**In the Output Log:**
+```
+[MCPBlueprint] ======================================================================
+[MCPBlueprint]   WIRING INSTRUCTIONS FOR: BP_FlyComponent
+[MCPBlueprint] ======================================================================
+[MCPBlueprint]   Double-click the Blueprint in /Game/MCP/ to open it.
+[MCPBlueprint]   FUNCTION: ActivateFlight
+[MCPBlueprint]     1. Set IsFlying = True
+[MCPBlueprint]     2. Get Owner → Cast To Character → Get Character Movement
+[MCPBlueprint]     3. Set Movement Mode = Flying
+[MCPBlueprint]     4. Set Max Fly Speed = FlySpeed
+[MCPBlueprint]   FUNCTION: DeactivateFlight
+[MCPBlueprint]     1. Set IsFlying = False
+[MCPBlueprint]     2. Get Owner → Cast To Character → Get Character Movement
+[MCPBlueprint]     3. Set Movement Mode = Walking
+[MCPBlueprint]   TO ADD TO YOUR CHARACTER:
+[MCPBlueprint]     1. Open your Character Blueprint
+[MCPBlueprint]     2. Add Component → search 'BP_FlyComponent'
+[MCPBlueprint]     3. Call ActivateFlight / DeactivateFlight on key press
+[MCPBlueprint] ======================================================================
+```
 
 ---
 
 ## Console Commands
 
-Open the **Output Log → Python console** and run any of these:
+Open **Window → Output Log → Python console** and run:
 
 ```python
 import mcp_ui
@@ -121,12 +159,14 @@ mcp_ui.status()
 
 | Symptom | Fix |
 |---------|-----|
-| `MCP AI` menu not visible | Wait 5-10 s for editor startup, or run `import mcp_ui; mcp_ui.show()` |
-| Blueprint not in Content Browser | Check Output Log for errors; try `mcp_ui.run("same prompt")` again |
-| HTTP 401 error | Regenerate your key at https://openrouter.ai/keys, then `mcp_ui.set_key("sk-or-v1-...")` |
-| All 0 ok / N failed | Restart UE (this resets the Python state) — was the threading bug, fixed in v1.5.0 |
-| `does_directory_exist` error | Plugin auto-creates `/Game/MCP`; if it still fails, create the folder manually in Content Browser |
-| Dialog doesn't appear | Run in Python console: `import mcp_ui; mcp_ui.show()` |
+| `MCP AI` menu not visible | Wait 5–10 s, then run `import mcp_ui; mcp_ui.show()` |
+| Dialog doesn't appear | Run `import mcp_ui; mcp_ui.show()` in the Python console |
+| API key asked every time | Run `mcp_ui.status()` to check config path; key is at `~/.mcp_blueprint_config.json` |
+| Blueprint not in Content Browser | Check Output Log — run `mcp_ui.run("same prompt")` to retry |
+| Blueprint has no nodes | This is expected! Python cannot add nodes. Follow wiring instructions in Output Log. |
+| HTTP 401 error | Regenerate key at https://openrouter.ai/keys → `mcp_ui.set_key("sk-or-v1-...")` |
+| ZenLoader crash | Fixed in v1.5.0. If still occurring, restart UE and try again. |
+| `does_directory_exist` error | Plugin auto-creates `/Game/MCP`; if it still fails, create it manually in Content Browser |
 
 ---
 

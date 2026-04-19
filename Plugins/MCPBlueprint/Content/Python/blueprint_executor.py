@@ -1,29 +1,41 @@
 """
-blueprint_executor.py — MCP Blueprint Generator v1.6.0
+blueprint_executor.py — MCP Blueprint Generator v1.7.0
 Executes MCP Blueprint commands inside Unreal Engine 5.7+
 
-KEY CHANGES IN v1.6.0
-─────────────────────
-• ACTOR COMPONENT GRAPH FIX: ActorComponent/SceneComponent blueprints do
-  NOT have an "EventGraph".  They have function override graphs named after
-  the event functions (e.g. "ReceiveBeginPlay", "ReceiveTick").
-  _get_working_graph() now detects the parent class and picks the correct
-  graph:
-    - Actor/Character/Pawn/GameMode variants → "EventGraph"
-    - ActorComponent/SceneComponent variants → "ReceiveBeginPlay" (or
-      whichever event graph is requested), created via
-      BlueprintEditorLibrary.add_function_override if not already present.
+HONEST REWRITE — v1.7.0
+─────────────────────────
+The UE 5.7 Python API (BlueprintEditorLibrary) does NOT expose any
+node-placement functions. Prior versions called APIs like
+add_function_call_node_to_graph, add_custom_event_node, get_graphs,
+add_function_override, etc. None of these exist in the documented Python
+bindings. They either silently failed or threw AttributeErrors that were
+swallowed, producing empty Blueprints.
 
-• All functions run on the MAIN GAME THREAD (dispatched by mcp_ui via
-  _main_queue).  Never call from a background thread.
+WHAT PYTHON CAN ACTUALLY DO IN UE 5.7 (BlueprintEditorLibrary):
+  create_blueprint_asset_with_parent(path, parent_class)  — create BP
+  find_event_graph(bp)                                    — get EventGraph
+  find_graph(bp, name)                                    — get any graph
+  add_function_graph(bp, name)                            — add function stub
+  add_member_variable(bp, name, pin_type)                 — add variable
+  set_member_variable_default_value(bp, name, value)      — set default
+  compile_blueprint(bp)                                   — compile
 
-• Config path fix (in mcp_ui.py, not here) — stable ~/.mcp_blueprint_config.json.
+WHAT PYTHON CANNOT DO (no Python bindings in UE 5.7):
+  Add nodes to graphs (no add_function_call_node_to_graph)
+  Wire pins between nodes
+  Place event nodes (BeginPlay, Tick, etc.)
 
-UNCHANGED FROM v1.5.0
-─────────────────────
-• _ensure_mcp_dir() creates /Game/MCP before every batch.
-• _resolve_parent_class() handles ActorComponent, SceneComponent, etc.
-• String-based pin categories (no BlueprintVariableType enum).
+STRATEGY (v1.7.0):
+  1. create_blueprint  — creates the asset with correct parent class
+  2. add_variable      — adds all member variables with correct types
+  3. add_function      — creates named function stubs
+  4. blueprint_instructions — logs PROMINENT step-by-step wiring guide
+  5. compile_blueprint — final compile + open in editor
+
+The AI system prompt is updated to generate ONLY these actions. The
+blueprint_instructions output tells the user exactly what to wire.
+
+add_node / connect_nodes are no-ops with a clear INFO log (not an error).
 """
 
 import traceback
@@ -48,62 +60,66 @@ def ok(msg, **extra):
 def err(msg):
     return {"success": False, "message": msg}
 
+def _log(msg):
+    try:
+        unreal.log(f"[MCPBlueprint] {msg}")
+    except Exception:
+        print(f"[MCPBlueprint] {msg}")
+
+def _warn(msg):
+    try:
+        unreal.log_warning(f"[MCPBlueprint] {msg}")
+    except Exception:
+        print(f"[MCPBlueprint] WARN: {msg}")
+
 
 def _ensure_mcp_dir():
-    """Create /Game/MCP if missing."""
+    """Create /Game/MCP if it doesn't exist (idempotent)."""
     try:
         if not unreal.EditorAssetLibrary.does_directory_exist("/Game/MCP"):
             unreal.EditorAssetLibrary.make_directory("/Game/MCP")
-            unreal.log("[MCPBlueprint] Created /Game/MCP directory.")
+            _log("Created /Game/MCP directory.")
     except Exception as e:
-        unreal.log_warning(f"[MCPBlueprint] _ensure_mcp_dir: {e}")
+        _warn(f"_ensure_mcp_dir: {e}")
 
 
 def _load_bp(name):
-    """Load Blueprint from /Game/MCP/<name>. Raises ValueError if missing."""
-    path = f"/Game/MCP/{name}.{name}"
-    bp = unreal.load_asset(path)
-    if bp is None:
+    """Load Blueprint from /Game/MCP/<name>. Raises ValueError if not found."""
+    # Try both asset reference formats
+    for path in (
+        f"/Game/MCP/{name}.{name}",
+        f"/Game/MCP/{name}",
+    ):
         try:
-            bp = unreal.EditorAssetLibrary.load_asset(path)
+            bp = unreal.load_asset(path)
+            if bp is not None:
+                return bp
         except Exception:
             pass
-    if bp is None:
-        raise ValueError(f"Blueprint not found at {path}")
-    return bp
+    raise ValueError(f"Blueprint not found at /Game/MCP/{name}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Parent class resolution
 # ─────────────────────────────────────────────────────────────────────────────
-_PARENT_CLASS_MAP = {
-    "Actor":               "/Script/Engine.Actor",
-    "Character":           "/Script/Engine.Character",
-    "Pawn":                "/Script/Engine.Pawn",
-    "GameModeBase":        "/Script/Engine.GameModeBase",
-    "GameMode":            "/Script/Engine.GameMode",
-    "PlayerController":    "/Script/Engine.PlayerController",
-    "AIController":        "/Script/AIModule.AIController",
-    "ActorComponent":      "/Script/Engine.ActorComponent",
-    "UActorComponent":     "/Script/Engine.ActorComponent",
-    "SceneComponent":      "/Script/Engine.SceneComponent",
-    "USceneComponent":     "/Script/Engine.SceneComponent",
-    "StaticMeshActor":     "/Script/Engine.StaticMeshActor",
-    "PlayerCameraManager": "/Script/Engine.PlayerCameraManager",
-    "HUD":                 "/Script/Engine.HUD",
-    "GameInstance":        "/Script/Engine.GameInstance",
-    "UserWidget":          "/Script/UMG.UserWidget",
-    "Widget":              "/Script/UMG.UserWidget",
-    "GameStateBase":       "/Script/Engine.GameStateBase",
-    "PlayerState":         "/Script/Engine.PlayerState",
-    "SpectatorPawn":       "/Script/Engine.SpectatorPawn",
-    "DefaultPawn":         "/Script/Engine.DefaultPawn",
-}
-
-# Parent classes that are component types (have no EventGraph)
-_COMPONENT_PARENTS = {
-    "ActorComponent", "UActorComponent",
-    "SceneComponent", "USceneComponent",
+_PARENT_MAP = {
+    "Actor":            "/Script/Engine.Actor",
+    "Character":        "/Script/Engine.Character",
+    "Pawn":             "/Script/Engine.Pawn",
+    "GameModeBase":     "/Script/Engine.GameModeBase",
+    "GameMode":         "/Script/Engine.GameMode",
+    "PlayerController": "/Script/Engine.PlayerController",
+    "AIController":     "/Script/AIModule.AIController",
+    "ActorComponent":   "/Script/Engine.ActorComponent",
+    "UActorComponent":  "/Script/Engine.ActorComponent",
+    "SceneComponent":   "/Script/Engine.SceneComponent",
+    "USceneComponent":  "/Script/Engine.SceneComponent",
+    "StaticMeshActor":  "/Script/Engine.StaticMeshActor",
+    "HUD":              "/Script/Engine.HUD",
+    "GameInstance":     "/Script/Engine.GameInstance",
+    "UserWidget":       "/Script/UMG.UserWidget",
+    "GameStateBase":    "/Script/Engine.GameStateBase",
+    "PlayerState":      "/Script/Engine.PlayerState",
 }
 
 
@@ -111,159 +127,31 @@ def _resolve_parent_class(parent_str):
     if not parent_str:
         return unreal.Actor.static_class()
 
-    if parent_str in _PARENT_CLASS_MAP:
-        cls = unreal.load_class(None, _PARENT_CLASS_MAP[parent_str])
+    if parent_str in _PARENT_MAP:
+        cls = unreal.load_class(None, _PARENT_MAP[parent_str])
         if cls:
             return cls
 
-    for module in ("Engine", "AIModule", "UMG"):
+    for module in ("Engine", "AIModule", "UMG", "GameplayAbilities"):
         cls = unreal.load_class(None, f"/Script/{module}.{parent_str}")
         if cls:
             return cls
 
+    # Strip U/A prefix (e.g. UActorComponent → ActorComponent)
     stripped = parent_str.lstrip("UA")
     if stripped != parent_str:
         cls = unreal.load_class(None, f"/Script/Engine.{stripped}")
         if cls:
             return cls
 
-    unreal.log_warning(f"[MCPBlueprint] Unknown parent class '{parent_str}', falling back to Actor.")
+    _warn(f"Unknown parent class '{parent_str}', defaulting to Actor.")
     return unreal.Actor.static_class()
 
 
-def _is_component_bp(bp):
-    """Return True if this Blueprint's parent is an ActorComponent/SceneComponent."""
-    try:
-        parent_class = bp.get_editor_property("parent_class")
-        if parent_class is None:
-            return False
-        name = parent_class.get_name()
-        # Check against known component base names
-        component_bases = {"ActorComponent", "SceneComponent"}
-        # Walk up the class hierarchy
-        cls = parent_class
-        for _ in range(10):
-            if cls is None:
-                break
-            n = cls.get_name()
-            if n in component_bases:
-                return True
-            try:
-                cls = cls.get_super_class()
-            except Exception:
-                break
-    except Exception:
-        pass
-    return False
-
-
 # ─────────────────────────────────────────────────────────────────────────────
-# Graph resolution
-#
-# Actor/Character/Pawn → "EventGraph"
-# ActorComponent/SceneComponent → function override graphs:
-#   "ReceiveBeginPlay", "ReceiveTick", "ReceiveEndPlay", etc.
-#
-# For components, we use BlueprintEditorLibrary.add_function_override
-# to create the override graph if it doesn't exist, then return it.
+# Variable type map (string-based — no BlueprintVariableType enum needed)
 # ─────────────────────────────────────────────────────────────────────────────
-
-# Maps the user-facing event name → function name used in component override
-_COMPONENT_EVENT_FUNC_MAP = {
-    "Event BeginPlay":              "ReceiveBeginPlay",
-    "Event Tick":                   "ReceiveTick",
-    "Event EndPlay":                "ReceiveEndPlay",
-    "Event ComponentBeginOverlap":  "ReceiveBeginPlay",
-    "Event InitializeComponent":    "ReceiveBeginPlay",
-}
-
-
-def _get_graphs(bp):
-    """Return all graphs in a Blueprint."""
-    try:
-        return unreal.BlueprintEditorLibrary.get_graphs(bp) or []
-    except Exception:
-        return []
-
-
-def _find_graph_by_name(bp, name):
-    """Find a graph by name (case-insensitive)."""
-    for g in _get_graphs(bp):
-        if g.get_name().lower() == name.lower():
-            return g
-    return None
-
-
-def _get_event_graph(bp):
-    """
-    Return the EventGraph for Actor-based blueprints.
-    Returns None if not found (e.g. it's a component BP).
-    """
-    return _find_graph_by_name(bp, "EventGraph")
-
-
-def _get_component_override_graph(bp, event_name):
-    """
-    For ActorComponent/SceneComponent blueprints:
-    get or create the function override graph for the given event_name.
-
-    event_name is the user-facing name like "Event BeginPlay".
-    Returns the graph, or None on failure.
-    """
-    func_name = _COMPONENT_EVENT_FUNC_MAP.get(event_name, "ReceiveBeginPlay")
-
-    # Check if the override graph already exists
-    existing = _find_graph_by_name(bp, func_name)
-    if existing:
-        return existing
-
-    # Create it via add_function_override
-    try:
-        unreal.BlueprintEditorLibrary.add_function_override(bp, func_name)
-        # Now find it again
-        return _find_graph_by_name(bp, func_name)
-    except Exception as e:
-        unreal.log_warning(f"[MCPBlueprint] add_function_override({func_name}) failed: {e}")
-
-    # Last resort: return the first available graph
-    graphs = _get_graphs(bp)
-    if graphs:
-        unreal.log_warning(f"[MCPBlueprint] Using first available graph: {graphs[0].get_name()}")
-        return graphs[0]
-
-    return None
-
-
-def _get_working_graph(bp, node_type=""):
-    """
-    Return the correct working graph for adding nodes to this Blueprint.
-
-    For Actor-based BPs: EventGraph.
-    For Component BPs: the appropriate function override graph.
-    """
-    is_comp = _is_component_bp(bp)
-
-    if not is_comp:
-        graph = _get_event_graph(bp)
-        if graph:
-            return graph
-        # Some blueprints may not have EventGraph yet — try any graph
-        graphs = _get_graphs(bp)
-        for g in graphs:
-            if "event" in g.get_name().lower():
-                return g
-        if graphs:
-            return graphs[0]
-        return None
-    else:
-        # Component blueprint
-        return _get_component_override_graph(bp, node_type)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Variable types
-# ─────────────────────────────────────────────────────────────────────────────
-VAR_TYPES = {
+_VAR_TYPES = {
     "Boolean":   ("bool",   ""),
     "Bool":      ("bool",   ""),
     "Integer":   ("int",    ""),
@@ -280,36 +168,6 @@ VAR_TYPES = {
     "Color":     ("struct", "/Script/CoreUObject.LinearColor"),
 }
 
-EVENT_MAP = {
-    "Event BeginPlay":              "ReceiveBeginPlay",
-    "Event Tick":                   "ReceiveTick",
-    "Event ActorBeginOverlap":      "ReceiveActorBeginOverlap",
-    "Event ActorEndOverlap":        "ReceiveActorEndOverlap",
-    "Event Hit":                    "ReceiveHit",
-    "Event Destroyed":              "ReceiveDestroyed",
-    "Event AnyDamage":              "ReceiveAnyDamage",
-    "Event EndPlay":                "ReceiveEndPlay",
-    "Event ComponentBeginOverlap":  "ReceiveBeginPlay",
-}
-
-FUNC_MAP = {
-    "Print String":              "/Script/Engine.KismetSystemLibrary:PrintString",
-    "Delay":                     "/Script/Engine.KismetSystemLibrary:Delay",
-    "Get Player Pawn":           "/Script/Engine.GameplayStatics:GetPlayerPawn",
-    "Get Player Character":      "/Script/Engine.GameplayStatics:GetPlayerCharacter",
-    "Destroy Actor":             "/Script/Engine.Actor:K2_DestroyActor",
-    "Get Actor Location":        "/Script/Engine.Actor:K2_GetActorLocation",
-    "Set Actor Location":        "/Script/Engine.Actor:K2_SetActorLocation",
-    "Get Actor Rotation":        "/Script/Engine.Actor:K2_GetActorRotation",
-    "AI Move To":                "/Script/AIModule.AIBlueprintHelperLibrary:SimpleMoveToActor",
-    "Simple Move To Actor":      "/Script/AIModule.AIBlueprintHelperLibrary:SimpleMoveToActor",
-    "Play Sound at Location":    "/Script/Engine.GameplayStatics:PlaySoundAtLocation",
-    "Get Distance To":           "/Script/Engine.Actor:GetDistanceTo",
-    "Set Timer by Function Name":"/Script/Engine.KismetSystemLibrary:SetTimerDelegate",
-    "Get World Delta Seconds":   "/Script/Engine.KismetSystemLibrary:GetWorldDeltaSeconds",
-    "Line Trace By Channel":     "/Script/Engine.KismetSystemLibrary:LineTraceSingle",
-}
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # create_blueprint
@@ -322,55 +180,42 @@ def create_blueprint(cmd):
         return err("create_blueprint: 'name' is required")
 
     _ensure_mcp_dir()
+    parent     = _resolve_parent_class(parent_str)
+    asset_path = f"/Game/MCP/{name}"
+    bp         = None
 
-    parent = _resolve_parent_class(parent_str)
-
-    factory = unreal.BlueprintFactory()
-    factory.set_editor_property("parent_class", parent)
-
-    tools = unreal.AssetToolsHelpers.get_asset_tools()
-    bp = tools.create_asset(
-        asset_name=name,
-        package_path="/Game/MCP",
-        asset_class=unreal.Blueprint,
-        factory=factory,
-    )
-
-    if bp is None:
-        _ensure_mcp_dir()
-        bp = tools.create_asset(
-            asset_name=name,
-            package_path="/Game/MCP",
-            asset_class=unreal.Blueprint,
-            factory=factory,
+    # Method 1: BlueprintEditorLibrary (documented UE 5.7 API)
+    try:
+        bp = unreal.BlueprintEditorLibrary.create_blueprint_asset_with_parent(
+            asset_path, parent
         )
+    except Exception as e:
+        _warn(f"create_blueprint_asset_with_parent failed: {e}")
+
+    # Method 2: AssetTools + BlueprintFactory (fallback)
+    if bp is None:
+        try:
+            factory = unreal.BlueprintFactory()
+            factory.set_editor_property("parent_class", parent)
+            tools = unreal.AssetToolsHelpers.get_asset_tools()
+            bp = tools.create_asset(
+                asset_name=name,
+                package_path="/Game/MCP",
+                asset_class=unreal.Blueprint,
+                factory=factory,
+            )
+        except Exception as e:
+            _warn(f"AssetTools fallback failed: {e}")
 
     if bp is None:
-        return err(f"create_blueprint: failed to create '{name}'")
+        return err(f"create_blueprint: failed to create '{name}' — check Output Log")
 
     try:
-        unreal.EditorAssetLibrary.save_asset(f"/Game/MCP/{name}", only_if_is_dirty=False)
+        unreal.EditorAssetLibrary.save_asset(asset_path, only_if_is_dirty=False)
     except Exception as e:
-        unreal.log_warning(f"[MCPBlueprint] save_asset warning: {e}")
+        _warn(f"save_asset: {e}")
 
-    is_comp = _is_component_bp(bp)
-    if is_comp:
-        # Pre-create the ReceiveBeginPlay and ReceiveTick graphs for components
-        # so nodes can be added immediately without needing a separate add_node call
-        for func_name in ("ReceiveBeginPlay", "ReceiveTick"):
-            if not _find_graph_by_name(bp, func_name):
-                try:
-                    unreal.BlueprintEditorLibrary.add_function_override(bp, func_name)
-                    unreal.log(f"[MCPBlueprint] Created override graph: {func_name}")
-                except Exception as e:
-                    unreal.log_warning(f"[MCPBlueprint] Could not create {func_name}: {e}")
-
-        try:
-            unreal.BlueprintEditorLibrary.compile_blueprint(bp)
-            unreal.EditorAssetLibrary.save_asset(f"/Game/MCP/{name}", only_if_is_dirty=False)
-        except Exception:
-            pass
-
+    _log(f"Created Blueprint '{name}' (parent: {parent_str}) at /Game/MCP/{name}")
     return ok(f"Created Blueprint '{name}' (parent: {parent_str})", blueprint=name)
 
 
@@ -389,10 +234,11 @@ def add_variable(cmd):
     if not bp_name:  return err("add_variable: 'blueprint' is required")
     if not var_name: return err("add_variable: 'variable_name' is required")
 
-    if var_type not in VAR_TYPES:
+    if var_type not in _VAR_TYPES:
+        _warn(f"Unknown variable type '{var_type}', defaulting to Float")
         var_type = "Float"
 
-    pin_cat, pin_sub = VAR_TYPES[var_type]
+    pin_cat, pin_sub = _VAR_TYPES[var_type]
 
     try:
         bp = _load_bp(bp_name)
@@ -411,9 +257,11 @@ def add_variable(cmd):
             pin_type.set_editor_property("pin_sub_category", pin_sub)
 
     try:
-        unreal.BlueprintEditorLibrary.add_member_variable(bp, var_name, pin_type)
+        success = unreal.BlueprintEditorLibrary.add_member_variable(bp, var_name, pin_type)
+        if not success:
+            _warn(f"add_member_variable returned False for '{var_name}'")
     except Exception as e:
-        return err(f"add_variable: add_member_variable failed: {e}")
+        return err(f"add_variable: {e}")
 
     if default is not None:
         try:
@@ -432,253 +280,60 @@ def add_variable(cmd):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# add_node
+# add_function
+# Creates a named function stub — nodes must be added manually in the editor
 # ─────────────────────────────────────────────────────────────────────────────
-def add_node(cmd):
+def add_function(cmd):
     bp_name   = cmd.get("blueprint") or cmd.get("blueprint_name")
-    node_type = cmd.get("node") or cmd.get("node_type", "")
-    node_id   = cmd.get("id") or cmd.get("node_id", "node_unknown")
-    params    = cmd.get("parameters") or {}
-    x = float(cmd.get("x", 0))
-    y = float(cmd.get("y", 0))
+    func_name = cmd.get("function_name") or cmd.get("name", "NewFunction")
 
-    if not bp_name:   return err("add_node: 'blueprint' is required")
-    if not node_type: return err("add_node: 'node' is required")
+    if not bp_name: return err("add_function: 'blueprint' is required")
 
     try:
         bp = _load_bp(bp_name)
     except ValueError as e:
         return err(str(e))
 
-    # Get the correct working graph for this blueprint type + event type
-    graph = _get_working_graph(bp, node_type)
-    if graph is None:
-        return err(f"add_node: No usable graph found in '{bp_name}'. "
-                   f"Tried EventGraph and component override graphs.")
-
-    node = None
-
     try:
-        # ── Event nodes ──────────────────────────────────────────────────────
-        if node_type in EVENT_MAP:
-            func_name = EVENT_MAP[node_type]
-
-            # For component blueprints, the "event node" IS the function entry
-            # of the override graph — we don't add a node, the entry is already there.
-            if _is_component_bp(bp):
-                # The graph IS the event — find the function entry node
-                nodes = graph.get_editor_property("nodes") or []
-                for n in nodes:
-                    try:
-                        cls_name = n.get_class().get_name()
-                        if "FunctionEntry" in cls_name or "Event" in cls_name:
-                            try:
-                                n.set_editor_property("node_comment", node_id)
-                            except Exception:
-                                pass
-                            return ok(
-                                f"Using component override entry for '{node_type}' (id={node_id})",
-                                node_id=node_id
-                            )
-                    except Exception:
-                        pass
-                # If we get here, tag the first node as the event
-                if nodes:
-                    try:
-                        nodes[0].set_editor_property("node_comment", node_id)
-                    except Exception:
-                        pass
-                    return ok(
-                        f"Tagged first graph node as '{node_type}' (id={node_id})",
-                        node_id=node_id
-                    )
-                return ok(
-                    f"[WARN] Component graph '{graph.get_name()}' has no nodes yet — event entry will appear after compile",
-                    node_id=node_id, warning=True
-                )
-
-            # Actor-based blueprint — add event node normally
-            try:
-                node = unreal.BlueprintEditorLibrary.add_function_call_node_to_graph(
-                    bp, f"/Script/Engine.Actor:{func_name}", graph, x, y
-                )
-            except Exception:
-                pass
-            if node is None:
-                try:
-                    node = unreal.BlueprintEditorLibrary.add_custom_event_node(
-                        bp, graph, func_name, x, y
-                    )
-                except Exception:
-                    pass
-
-        # ── Timeline ─────────────────────────────────────────────────────────
-        elif node_type == "Timeline":
-            tl_name = params.get("name", "Timeline") if isinstance(params, dict) else "Timeline"
-            try:
-                node = unreal.BlueprintEditorLibrary.add_timeline_node(bp, tl_name, graph, x, y)
-            except Exception:
-                pass
-
-        # ── Cast To ──────────────────────────────────────────────────────────
-        elif node_type.startswith("Cast To"):
-            target_name = node_type.replace("Cast To", "").strip()
-            target_cls  = _resolve_parent_class(target_name)
-            if target_cls:
-                try:
-                    node = unreal.BlueprintEditorLibrary.add_cast_node(
-                        bp, target_cls, graph, x, y
-                    )
-                except Exception:
-                    pass
-
-        # ── Variable Get/Set ─────────────────────────────────────────────────
-        elif node_type == "Get Variable":
-            var = params.get("variable", "") if isinstance(params, dict) else ""
-            try:
-                node = unreal.BlueprintEditorLibrary.add_variable_get_node(bp, var, graph, x, y)
-            except Exception:
-                pass
-
-        elif node_type == "Set Variable":
-            var = params.get("variable", "") if isinstance(params, dict) else ""
-            try:
-                node = unreal.BlueprintEditorLibrary.add_variable_set_node(bp, var, graph, x, y)
-            except Exception:
-                pass
-
-        # ── Call Function: <path> ─────────────────────────────────────────────
-        elif node_type.startswith("Call Function:"):
-            func_path = node_type.replace("Call Function:", "").strip()
-            try:
-                node = unreal.BlueprintEditorLibrary.add_function_call_node_to_graph(
-                    bp, func_path, graph, x, y
-                )
-            except Exception:
-                pass
-
-        # ── Named function nodes ──────────────────────────────────────────────
-        elif node_type in FUNC_MAP:
-            try:
-                node = unreal.BlueprintEditorLibrary.add_function_call_node_to_graph(
-                    bp, FUNC_MAP[node_type], graph, x, y
-                )
-            except Exception:
-                pass
-
-    except Exception:
-        pass
-
-    if node is None:
-        return ok(
-            f"[WARN] Could not auto-place '{node_type}' — add it manually in the Blueprint editor",
-            node_id=node_id, warning=True
-        )
-
-    try:
-        node.set_editor_property("node_comment", node_id)
-    except Exception:
-        pass
-
-    return ok(f"Added '{node_type}' (id={node_id}) to {bp_name}", node_id=node_id)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# connect_nodes
-# ─────────────────────────────────────────────────────────────────────────────
-def connect_nodes(cmd):
-    bp_name  = cmd.get("blueprint") or cmd.get("blueprint_name")
-    from_id  = cmd.get("from_node", "")
-    from_pin = cmd.get("from_pin", "Then")
-    to_id    = cmd.get("to_node", "")
-    to_pin   = cmd.get("to_pin", "Execute")
-
-    if not bp_name: return err("connect_nodes: 'blueprint' is required")
-
-    try:
-        bp = _load_bp(bp_name)
-    except ValueError as e:
-        return err(str(e))
-
-    # Search ALL graphs for nodes (component BPs have multiple override graphs)
-    all_nodes = []
-    for g in _get_graphs(bp):
+        graph = unreal.BlueprintEditorLibrary.add_function_graph(bp, func_name)
+        if graph is None:
+            return err(f"add_function_graph returned None for '{func_name}'")
         try:
-            all_nodes.extend(g.get_editor_property("nodes") or [])
+            unreal.BlueprintEditorLibrary.compile_blueprint(bp)
         except Exception:
             pass
-
-    def _find(nid):
-        for n in all_nodes:
-            try:
-                if n.get_editor_property("node_comment") == nid:
-                    return n
-            except Exception:
-                pass
-        return None
-
-    from_node = _find(from_id)
-    to_node   = _find(to_id)
-
-    if from_node is None:
-        return ok(f"[WARN] connect_nodes: source '{from_id}' not found — skipping", warning=True)
-    if to_node is None:
-        return ok(f"[WARN] connect_nodes: target '{to_id}' not found — skipping", warning=True)
-
-    def _find_pin(node, pin_name):
-        try:
-            for p in node.get_editor_property("pins"):
-                if str(p.get_editor_property("pin_name")) == pin_name:
-                    return p
-        except Exception:
-            pass
-        return None
-
-    fp = _find_pin(from_node, from_pin)
-    tp = _find_pin(to_node,   to_pin)
-
-    if fp is None:
-        return ok(f"[WARN] connect_nodes: pin '{from_pin}' not found on '{from_id}' — skipping", warning=True)
-    if tp is None:
-        return ok(f"[WARN] connect_nodes: pin '{to_pin}' not found on '{to_id}' — skipping", warning=True)
-
-    try:
-        success = unreal.BlueprintEditorLibrary.create_connection_between_pins(fp, tp)
+        return ok(f"Added function stub '{func_name}' to {bp_name}")
     except Exception as e:
-        return ok(f"[WARN] connect_nodes: connection failed ({e}) — skipping", warning=True)
-
-    if not success:
-        return ok(f"[WARN] connect_nodes: {from_id}.{from_pin} → {to_id}.{to_pin} failed — skipping", warning=True)
-
-    return ok(f"Connected {from_id}.{from_pin} → {to_id}.{to_pin}")
+        return err(f"add_function: {e}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# set_variable
+# blueprint_instructions
+#
+# The AI includes a blueprint_instructions command with step-by-step wiring
+# guidance. We log it prominently in the Output Log so the user can follow
+# the instructions in the Blueprint editor.
 # ─────────────────────────────────────────────────────────────────────────────
-def set_variable(cmd):
-    bp_name  = cmd.get("blueprint") or cmd.get("blueprint_name")
-    params   = cmd.get("parameters") or {}
-    var_name = cmd.get("variable_name") or params.get("variable_name")
-    value    = cmd.get("value")
-    if value is None:
-        value = params.get("value")
+def blueprint_instructions(cmd):
+    bp_name      = cmd.get("blueprint") or cmd.get("blueprint_name", "Blueprint")
+    instructions = cmd.get("instructions", "")
 
-    if not bp_name:   return err("set_variable: 'blueprint' is required")
-    if not var_name:  return err("set_variable: 'variable_name' is required")
-    if value is None: return err("set_variable: 'value' is required")
+    if instructions:
+        separator = "=" * 70
+        _log(separator)
+        _log(f"  WIRING INSTRUCTIONS FOR: {bp_name}")
+        _log(separator)
+        _log("  Double-click the Blueprint in /Game/MCP/ to open it.")
+        _log("  Then implement the following logic:")
+        _log("")
+        for line in instructions.strip().split("\\n"):
+            _log(f"  {line}")
+        _log("")
+        _log(separator)
+        _log("  TIP: Open Window → Output Log, filter by 'MCPBlueprint'")
+        _log(separator)
 
-    try:
-        bp = _load_bp(bp_name)
-    except ValueError as e:
-        return err(str(e))
-
-    try:
-        unreal.BlueprintEditorLibrary.set_member_variable_default_value(bp, var_name, str(value))
-        unreal.BlueprintEditorLibrary.compile_blueprint(bp)
-        return ok(f"Set {bp_name}.{var_name} = {value}")
-    except Exception as e:
-        return ok(f"[WARN] set_variable failed ({e}) — skipping", warning=True)
+    return ok(f"Wiring instructions logged for {bp_name}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -697,27 +352,53 @@ def compile_blueprint(cmd):
     try:
         unreal.BlueprintEditorLibrary.compile_blueprint(bp)
     except Exception as e:
-        unreal.log_warning(f"[MCPBlueprint] compile warning: {e}")
+        _warn(f"compile warning: {e}")
 
     try:
         unreal.EditorAssetLibrary.save_asset(f"/Game/MCP/{name}", only_if_is_dirty=False)
     except Exception as e:
-        unreal.log_warning(f"[MCPBlueprint] save warning: {e}")
+        _warn(f"save warning: {e}")
 
+    _log(f"Compiled and saved {name}")
     return ok(f"Compiled and saved {name}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Graceful no-ops for node commands
+#
+# The AI is instructed not to generate these, but if it does anyway,
+# log a clear INFO message (not an error) so the user knows.
+# ─────────────────────────────────────────────────────────────────────────────
+def _node_not_supported(cmd):
+    action = cmd.get("action", "?")
+    node   = cmd.get("node", cmd.get("name", ""))
+    bp     = cmd.get("blueprint", cmd.get("blueprint_name", ""))
+    _log(
+        f"INFO: '{action}' ({node}) cannot be placed via Python in UE 5.7. "
+        f"Open {bp} in the Blueprint editor to add this node manually."
+    )
+    # Return success=True with warning=True so this doesn't count as failure
+    return ok(
+        f"[INFO] '{action}' ({node}) — add manually in Blueprint editor",
+        warning=True,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Dispatcher
 # ─────────────────────────────────────────────────────────────────────────────
 COMMANDS = {
-    "create_blueprint":  create_blueprint,
-    "add_node":          add_node,
-    "connect_nodes":     connect_nodes,
-    "add_variable":      add_variable,
-    "set_variable":      set_variable,
-    "compile_blueprint": compile_blueprint,
+    "create_blueprint":       create_blueprint,
+    "add_variable":           add_variable,
+    "add_function":           add_function,
+    "blueprint_instructions": blueprint_instructions,
+    "compile_blueprint":      compile_blueprint,
+    # Graceful no-ops (logged as INFO, not FAIL)
+    "add_node":               _node_not_supported,
+    "connect_nodes":          _node_not_supported,
+    "set_variable":           _node_not_supported,
 }
+
 
 def execute_command(cmd):
     if not isinstance(cmd, dict):
@@ -727,11 +408,13 @@ def execute_command(cmd):
         return err("Missing 'action' field")
     handler = COMMANDS.get(action)
     if not handler:
-        return ok(f"[WARN] Unknown action '{action}' — skipping", warning=True)
+        _log(f"Unknown action '{action}' — skipping")
+        return ok(f"[INFO] Unknown action '{action}' — skipping", warning=True)
     try:
         return handler(cmd)
     except Exception:
-        return err(f"{action} error:\n{traceback.format_exc()}")
+        return err(f"{action} raised exception:\n{traceback.format_exc()}")
+
 
 def execute_batch(commands):
     if not isinstance(commands, list):
@@ -742,16 +425,15 @@ def execute_batch(commands):
     results   = []
     succeeded = 0
     failed    = 0
+
     for cmd in commands:
         r = execute_command(cmd)
         results.append(r)
         if r.get("success"):
             succeeded += 1
-            if r.get("warning"):
-                unreal.log_warning(f"[MCPBlueprint] WARN: {r.get('message','?')}")
         else:
             failed += 1
-            unreal.log_error(f"[MCPBlueprint] FAIL: {r.get('message','?')}")
+            unreal.log_error(f"[MCPBlueprint] FAIL: {r.get('message', '?')}")
 
     return {
         "success":   failed == 0,

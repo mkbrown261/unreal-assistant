@@ -1,5 +1,5 @@
 """
-init_unreal.py — MCP Blueprint Generator v1.5.0
+init_unreal.py — MCP Blueprint Generator v1.7.0
 Auto-runs when Unreal Engine loads the MCPBlueprint plugin.
 
 Compatible with UE 5.7.4 on macOS (Python 3.11).
@@ -7,14 +7,14 @@ Compatible with UE 5.7.4 on macOS (Python 3.11).
 What happens on load:
   1. This file is executed by the Unreal Python plugin.
   2. mcp_ui.start() is called.
-  3. start() registers UE Python classes (ToolMenuEntryScript subclass, etc.)
+  3. start() registers UE Python classes (ToolMenuEntryScript subclass).
   4. A permanent Slate post-tick callback is installed.
-  5. The callback waits for the editor to be fully loaded, then:
+  5. The callback waits for the editor to fully load, then:
        a. Registers 'MCP AI' in the Level Editor menu bar.
        b. Opens the startup dialog (API key → model → prompt).
-  6. The same tick callback also drains the main-thread work queue
-     that blueprint_executor commands are posted to from the background
-     fetch thread (replaces the non-existent call_on_game_thread in UE 5.7).
+  6. The tick callback also drains the main-thread work queue every frame,
+     ensuring Blueprint asset creation runs on the game thread (not the
+     background HTTP thread) — no ZenLoader crashes.
 
 To reopen the dialog:
   import mcp_ui; mcp_ui.show()
@@ -24,6 +24,9 @@ To generate without the dialog:
 
 To set your API key from the console:
   import mcp_ui; mcp_ui.set_key("sk-or-v1-...")
+
+To check current configuration:
+  import mcp_ui; mcp_ui.status()
 """
 
 import sys

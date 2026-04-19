@@ -1,34 +1,40 @@
 """
-mcp_ui.py — MCP Blueprint Generator v1.6.0
+mcp_ui.py — MCP Blueprint Generator v1.7.0
 UE 5.7.4 / macOS / Python 3.11
 
-WHAT'S NEW IN v1.6.0
-─────────────────────
-• PERSISTENT DOCKABLE PANEL: The plugin now opens a real Unreal Editor
-  tab (registered via unreal.register_nomad_tab_spawner) that stays open,
-  can be docked anywhere, and does NOT disappear after generating a Blueprint.
-  If nomad tabs aren't available, falls back to a single large show_message
-  dialog that shows all options at once.
+WHAT'S FIXED IN v1.7.0
+───────────────────────
+• SYSTEM PROMPT REWRITE: The AI no longer generates add_node/connect_nodes
+  commands (which the UE 5.7 Python API cannot execute). Instead it generates
+  create_blueprint + add_variable + add_function + blueprint_instructions.
+  Blueprint assets are created with full variable/function structure; the
+  blueprint_instructions command logs exactly what nodes to add in the editor.
 
-• NO MORE REPEATED API KEY PROMPT: The config file is stored in a stable
-  path under the user's home directory (~/.mcp_blueprint_config.json).
-  Previously it used __file__ which could change across sessions.
+• DIALOG RE-OPEN BUG: _dialog_open guard was getting stuck True when
+  _apply() tried to call _run_panel() while the panel was still in its
+  finally block. Fixed by posting re-open to _main_queue instead of calling
+  directly, ensuring the guard is fully cleared first.
 
-• LARGER DIALOGS: show_object_details_view is now opened with
-  min_width=700, min_height=300 so the full model list is visible.
+• API KEY NOT SAVED: _dialog_open stuck True meant the config save path
+  was never reaching _do_panel on the next call. Now guaranteed to reset.
 
-• ACTOR COMPONENT GRAPH FIX: Components (ActorComponent, SceneComponent)
-  do NOT have an "EventGraph" — they have function override graphs named
-  "ReceiveBeginPlay", "ReceiveTick", etc.  We now detect the blueprint
-  parent and pick the correct working graph.
+• SMALLER RELIABLE DIALOGS: Replaced show_object_details_view (broken in
+  UE 5.7 for text input) with show_message for info/confirmation dialogs and
+  show_text_input_dialog for text entry. Falls back gracefully.
 
-• THREADING (unchanged from v1.5.0): HTTP fetch on daemon thread,
-  Blueprint commands posted to _main_queue and executed on game thread
-  via permanent Slate tick callback — no ZenLoader crashes.
+• THREADING (unchanged from v1.5.0): HTTP fetch on daemon thread, Blueprint
+  commands posted to _main_queue executed on game thread via Slate tick.
 
 REOPEN AT ANY TIME
 ──────────────────
   import mcp_ui; mcp_ui.show()
+
+CONSOLE SHORTCUTS
+─────────────────
+  mcp_ui.set_key('sk-or-v1-...')   # save API key
+  mcp_ui.run('Make a fly component')  # skip the dialog
+  mcp_ui.status()                  # check current config
+  mcp_ui.list_models()             # list all models
 """
 
 import json
@@ -127,40 +133,75 @@ MODEL_LABELS  = [l for l, _ in MODELS]
 MODEL_IDS     = [m for _, m in MODELS]
 DEFAULT_MODEL = "anthropic/claude-sonnet-4-5"
 
-SYSTEM_PROMPT = (
-    "You are an Unreal Engine 5 Blueprint generation assistant. "
-    "The user describes game logic in plain English. "
-    "Respond with ONLY a valid JSON object — no explanation, no markdown.\n\n"
-    "IMPORTANT RULES FOR ACTOR COMPONENTS:\n"
-    "If parent_class is ActorComponent or SceneComponent, you MUST use ONLY these event nodes:\n"
-    "  'Event BeginPlay', 'Event Tick', 'Event EndPlay'\n"
-    "These map to ReceiveBeginPlay/ReceiveTick/ReceiveEndPlay override graphs in components.\n\n"
-    '{"blueprint_name":"BP_Name","commands":['
-    '{"action":"create_blueprint","name":"BP_Name","parent_class":"Actor"},'
-    '{"action":"add_node","blueprint":"BP_Name","node":"Event BeginPlay","id":"n0","x":0,"y":0},'
-    '{"action":"add_node","blueprint":"BP_Name","node":"Print String","id":"n1","x":300,"y":0},'
-    '{"action":"connect_nodes","blueprint":"BP_Name","from_node":"n0","from_pin":"Then","to_node":"n1","to_pin":"Execute"},'
-    '{"action":"compile_blueprint","name":"BP_Name"}]}\n\n'
-    "Rules: BP_ prefix PascalCase. "
-    "parent_class: Actor/Character/Pawn/ActorComponent/SceneComponent/GameModeBase/PlayerController. "
-    "Available nodes: Event BeginPlay, Event Tick, Event EndPlay, Event ActorBeginOverlap, "
-    "Branch, Print String, Delay, Get Player Pawn, Get Player Character, "
-    "Get Actor Location, Set Actor Location, Destroy Actor, AI Move To. "
-    "add_variable action: {action, blueprint, variable_name, variable_type[Boolean/Integer/Float/String/Vector]}. "
-    "Unique node ids. compile_blueprint must be last. Return ONLY the JSON."
-)
+# ─────────────────────────────────────────────────────────────────────────────
+# System prompt — HONEST about UE 5.7 Python limitations
+#
+# The UE 5.7 Python API CANNOT add nodes or wire pins programmatically.
+# BlueprintEditorLibrary only exposes:
+#   create_blueprint_asset_with_parent, find_event_graph, find_graph,
+#   add_function_graph, add_member_variable, compile_blueprint.
+#
+# So the AI generates:
+#   1. create_blueprint  — creates the asset
+#   2. add_variable      — adds member variables
+#   3. add_function      — creates named function stubs
+#   4. blueprint_instructions — logs what nodes/wiring to add manually
+#   5. compile_blueprint — final compile
+#
+# The blueprint_instructions field gives the user step-by-step guidance on
+# what to wire inside the Blueprint editor. This is honest and useful.
+# ─────────────────────────────────────────────────────────────────────────────
+SYSTEM_PROMPT = """\
+You are an Unreal Engine 5.7 Blueprint scaffolding assistant.
+
+The UE 5.7 Python API cannot add nodes or wire pins — only create the asset,
+add variables, and add function stubs. You will generate the Blueprint structure
+plus detailed instructions for what the user must wire manually in the editor.
+
+Respond with ONLY a valid JSON object. No markdown, no explanation, no code fences.
+
+SUPPORTED ACTIONS (use only these):
+  create_blueprint   — {"action":"create_blueprint","name":"BP_Name","parent_class":"Actor"}
+  add_variable       — {"action":"add_variable","blueprint":"BP_Name","variable_name":"Speed","variable_type":"Float","default_value":"600.0"}
+  add_function       — {"action":"add_function","blueprint":"BP_Name","function_name":"ActivateFlight"}
+  blueprint_instructions — {"action":"blueprint_instructions","blueprint":"BP_Name","instructions":"Step-by-step wiring guide"}
+  compile_blueprint  — {"action":"compile_blueprint","name":"BP_Name"}
+
+VARIABLE TYPES: Boolean, Integer, Float, String, Vector, Rotator, Transform
+
+PARENT CLASSES:
+  Actor, Character, Pawn, ActorComponent, SceneComponent,
+  GameModeBase, PlayerController, AIController, UserWidget, GameInstance
+
+NAMING: BP_ prefix, PascalCase. compile_blueprint must be last.
+
+EXAMPLE — fly component:
+{
+  "blueprint_name": "BP_FlyComponent",
+  "commands": [
+    {"action":"create_blueprint","name":"BP_FlyComponent","parent_class":"ActorComponent"},
+    {"action":"add_variable","blueprint":"BP_FlyComponent","variable_name":"FlySpeed","variable_type":"Float","default_value":"600.0"},
+    {"action":"add_variable","blueprint":"BP_FlyComponent","variable_name":"IsFlying","variable_type":"Boolean","default_value":"false"},
+    {"action":"add_function","blueprint":"BP_FlyComponent","function_name":"ActivateFlight"},
+    {"action":"add_function","blueprint":"BP_FlyComponent","function_name":"DeactivateFlight"},
+    {"action":"blueprint_instructions","blueprint":"BP_FlyComponent","instructions":"EVENT GRAPH — ReceiveBeginPlay:\\n  No setup needed.\\n\\nFUNCTION: ActivateFlight\\n  1. Set IsFlying = True\\n  2. Get Owner → Cast To Character → Get Character Movement → Set Movement Mode = Flying\\n  3. Set Max Fly Speed = FlySpeed\\n\\nFUNCTION: DeactivateFlight\\n  1. Set IsFlying = False\\n  2. Get Owner → Cast To Character → Get Character Movement → Set Movement Mode = Walking\\n\\nTO ADD THIS TO YOUR CHARACTER:\\n  1. Open your Character Blueprint\\n  2. Add Component → search 'BP_FlyComponent'\\n  3. In Input events: call ActivateFlight / DeactivateFlight on key press"},
+    {"action":"compile_blueprint","name":"BP_FlyComponent"}
+  ]
+}
+
+Generate a complete, useful blueprint_instructions with exact node names the user needs to add.
+Return ONLY the JSON."""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # UObject classes — module level (UE 5.7 requirement)
 # ─────────────────────────────────────────────────────────────────────────────
 _UE_CLASSES_READY = False
-MCPTextInputObj   = None
 MCPMenuScript     = None
 
 
 def _init_ue_classes():
-    global _UE_CLASSES_READY, MCPTextInputObj, MCPMenuScript
+    global _UE_CLASSES_READY, MCPMenuScript
 
     if _UE_CLASSES_READY:
         return
@@ -170,18 +211,11 @@ def _init_ue_classes():
     import unreal as _u
 
     @_u.uclass()
-    class _MCPTextInput(_u.Object):
-        """Type your input below and click OK."""
-        value = _u.uproperty(str, meta=dict(DisplayName="Input", MultiLine=True))
-
-    MCPTextInputObj = _MCPTextInput
-
-    @_u.uclass()
     class _MCPMenuEntry(_u.ToolMenuEntryScript):
         @_u.ufunction(override=True)
         def execute(self, context):
             try:
-                show()
+                _enqueue_show()
             except Exception:
                 _warn(f"Menu execute() failed:\n{traceback.format_exc()}")
 
@@ -192,143 +226,148 @@ def _init_ue_classes():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Persistent Panel (replaces the vanishing 3-dialog chain)
+# Dialog helpers
 #
-# Strategy: Use show_object_details_view for a SINGLE large dialog that
-# contains all settings at once (key already saved, so it shows model+prompt).
-# The dialog is large (700×500), stays on screen until user clicks OK/Cancel.
+# UE 5.7 dialog APIs that reliably work:
+#   EditorDialog.show_message(title, body, msg_type, ret_type, category)
+#   EditorDialog.show_text_input_dialog(title, message, default_value)  [sometimes]
 #
-# Full dockable tab via register_nomad_tab_spawner is not available in
-# Python-only UE 5.7 plugins (requires C++ module). Instead we use the
-# largest possible show_object_details_view, and after generation completes
-# we immediately re-open the panel so it feels persistent.
+# show_object_details_view can sometimes work for structured input but is
+# unreliable for simple text entry in UE 5.7.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Tracks whether a dialog is currently open to prevent double-open
-_dialog_open = False
+def _show_message(title, body, msg_type=None, default_ret=None, category=None):
+    """Show a modal message dialog. Returns AppReturnType."""
+    import unreal as _u
+    mt  = msg_type   if msg_type   is not None else _u.AppMsgType.OK
+    ret = default_ret if default_ret is not None else _u.AppReturnType.OK
+    cat = category   if category   is not None else _u.AppMsgCategory.INFO
+    try:
+        return _u.EditorDialog.show_message(title, body, mt, ret, cat)
+    except Exception as e:
+        _warn(f"show_message failed: {e}")
+        return ret
 
 
-def _prompt_text(title, default_value="", hint="", width=700, height=320):
+def _show_input(title, message, default_value=""):
     """
-    Show a large modal text-input dialog.
-    Returns the text the user typed, or None if cancelled.
+    Show a text input dialog. Returns the entered string, or None on cancel.
+    Tries multiple UE 5.7-compatible APIs in order.
     """
     import unreal as _u
 
-    if MCPTextInputObj is not None:
-        try:
-            obj = _u.new_object(MCPTextInputObj)
-            obj.set_editor_property("value", str(default_value))
-
-            opts = _u.EditorDialogLibraryObjectDetailsViewOptions()
-            opts.show_object_name         = False
-            opts.allow_search             = False
-            opts.allow_resizing           = True
-            opts.min_width                = width
-            opts.min_height               = height
-            opts.value_column_width_ratio = 0.70
-
-            ok = _u.EditorDialog.show_object_details_view(
-                hint if hint else title,
-                obj,
-                opts,
-            )
-            if ok:
-                return obj.get_editor_property("value")
-            return None
-        except Exception as e:
-            _warn(f"show_object_details_view failed: {e}")
-
-    # Fallback
+    # Method 1: show_text_input_dialog (most common in UE 5.x)
     if hasattr(_u.EditorDialog, "show_text_input_dialog"):
         try:
-            return _u.EditorDialog.show_text_input_dialog(
-                title=title, message=hint or title, default_value=str(default_value)
+            result = _u.EditorDialog.show_text_input_dialog(
+                title=title,
+                message=message,
+                default_value=str(default_value),
             )
-        except Exception:
-            pass
+            # Returns None if cancelled
+            return result
+        except Exception as e:
+            _warn(f"show_text_input_dialog failed: {e}")
 
+    # Method 2: show_object_details_view with a simple uobject
+    # Only attempt if we have the class ready
+    try:
+        @_u.uclass()
+        class _TmpInput(_u.Object):
+            val = _u.uproperty(str, meta=dict(DisplayName="Value"))
+
+        obj = _u.new_object(_TmpInput)
+        obj.set_editor_property("val", str(default_value))
+
+        opts = _u.EditorDialogLibraryObjectDetailsViewOptions()
+        opts.show_object_name = False
+        opts.allow_resizing   = True
+        opts.min_width        = 600
+        opts.min_height       = 200
+
+        ok_pressed = _u.EditorDialog.show_object_details_view(message, obj, opts)
+        if ok_pressed:
+            return obj.get_editor_property("val")
+        return None
+    except Exception as e:
+        _warn(f"show_object_details_view failed: {e}")
+
+    # Method 3: No working dialog — tell user to use console
+    _log(f"No dialog available. Use console: import mcp_ui; mcp_ui.run('your prompt')")
     return None
 
 
-def _show_message(title, body, msg_type=None, default_ret=None, category=None):
-    """Wrapper for EditorDialog.show_message with sensible defaults."""
-    import unreal as _u
-    mt  = msg_type   or _u.AppMsgType.OK
-    ret = default_ret or _u.AppReturnType.OK
-    cat = category   or _u.AppMsgCategory.INFO
-    return _u.EditorDialog.show_message(title, body, mt, ret, cat)
-
-
 # ─────────────────────────────────────────────────────────────────────────────
-# The Main Panel — one persistent large dialog
+# Panel state
 # ─────────────────────────────────────────────────────────────────────────────
+_dialog_open = False
 
-def _run_panel(reopen_after_generate=False):
-    """
-    Open the MCP Blueprint Generator panel.
-    This is a single large dialog that persists until the user explicitly
-    closes it.  After generation it re-opens automatically.
 
-    Must be called on the Unreal main/game thread.
-    """
+def _enqueue_show():
+    """Thread-safe: post show() to main queue."""
+    _main_queue.put(_open_panel_safe)
+
+
+def _open_panel_safe():
+    """Called from main queue drain — guaranteed on game thread."""
     global _dialog_open
-
     if _dialog_open:
-        _log("Panel already open — skipping duplicate open.")
+        _log("Panel already open.")
         return
-
-    import unreal as _u
-
     _dialog_open = True
     try:
         _do_panel()
+    except Exception:
+        _err(f"Panel error:\n{traceback.format_exc()}")
     finally:
         _dialog_open = False
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Main panel flow
+# ─────────────────────────────────────────────────────────────────────────────
+
 def _do_panel():
-    """Inner panel logic — called from _run_panel."""
+    """
+    Three-step flow: API key → model selection → blueprint description.
+    Each step uses a reliable dialog. After generation, panel re-opens via queue.
+    """
     import unreal as _u
 
-    # ── STEP 1: API key (only if not saved) ───────────────────────────────────
+    # ── STEP 1: API key ───────────────────────────────────────────────────────
     saved_key = _get("api_key", "")
     if not saved_key:
         _log("No API key found — opening setup dialog.")
+
+        # Show info message first
         ret = _show_message(
             "MCP Blueprint Generator — Setup",
             (
                 "Welcome to MCP Blueprint Generator!\n\n"
-                "You need a FREE OpenRouter API key to get started.\n\n"
-                "  1. Go to:  https://openrouter.ai/keys\n"
-                "  2. Create a free account\n"
-                "  3. Click 'Create Key'\n"
-                "  4. Copy it (starts with  sk-or-v1-)\n\n"
-                "Click OK to paste your key, or Cancel to use the console:\n"
-                "  import mcp_ui; mcp_ui.set_key('sk-or-v1-...')"
+                "You need a FREE OpenRouter API key:\n"
+                "  1. Go to  https://openrouter.ai/keys\n"
+                "  2. Create account + click Create Key\n"
+                "  3. Copy it (starts with sk-or-v1-)\n\n"
+                "Click OK to enter your key."
             ),
-            _u.AppMsgType.OK_CANCEL, _u.AppReturnType.OK, _u.AppMsgCategory.INFO,
+            _u.AppMsgType.OK_CANCEL,
+            _u.AppReturnType.OK,
+            _u.AppMsgCategory.INFO,
         )
         if ret != _u.AppReturnType.OK:
             _log("Setup cancelled.  Run: import mcp_ui; mcp_ui.show()")
             return
 
-        key_val = _prompt_text(
+        key_val = _show_input(
             title="API Key",
+            message="Paste your OpenRouter API key (starts with sk-or-v1-):",
             default_value="sk-or-v1-",
-            hint=(
-                "MCP Blueprint Generator — Paste your API Key\n\n"
-                "Get a FREE key at: https://openrouter.ai/keys\n\n"
-                "Paste it below (starts with sk-or-v1-):\n"
-                "─────────────────────────────────────────────────────────────────"
-            ),
-            width=680, height=200,
         )
 
         if not key_val or not key_val.strip() or key_val.strip() == "sk-or-v1-":
             _show_message(
                 "MCP Blueprint Generator",
-                "No API key entered.\n\nRun: import mcp_ui; mcp_ui.show()",
+                "No API key entered.\n\nConsole fallback:\n  import mcp_ui; mcp_ui.set_key('sk-or-v1-...')\n  mcp_ui.run('your blueprint description')",
                 _u.AppMsgType.OK, _u.AppReturnType.OK, _u.AppMsgCategory.WARNING,
             )
             return
@@ -344,32 +383,28 @@ def _do_panel():
     except ValueError:
         cur_idx = 0
 
-    model_lines = "\n".join(
-        f"  {'▶' if i == cur_idx else ' '} {i+1:>2}. {label}"
+    model_list = "\n".join(
+        f"  {'>' if i == cur_idx else ' '} {i+1:>2}. {label}"
         for i, label in enumerate(MODEL_LABELS)
     )
-
-    model_hint = (
-        f"MCP — Select AI Model\n"
-        f"Current: [{cur_idx+1}] {MODEL_LABELS[cur_idx]}\n\n"
-        f"Type a number 1-{len(MODELS)} and click OK  (or leave as-is to keep current):\n\n"
-        f"{model_lines}\n"
-        f"─────────────────────────────────────────────────────────────────"
+    model_msg = (
+        f"Current model: [{cur_idx+1}] {MODEL_LABELS[cur_idx]}\n\n"
+        f"Type a number 1-{len(MODELS)} to change, or press OK to keep current:\n\n"
+        f"{model_list}"
     )
 
-    model_num_str = _prompt_text(
-        title="Select Model",
+    model_input = _show_input(
+        title="Select AI Model",
+        message=model_msg,
         default_value=str(cur_idx + 1),
-        hint=model_hint,
-        width=700, height=480,
     )
 
-    if model_num_str is None:
+    if model_input is None:
         _log("Model selection cancelled.")
         return
 
-    if model_num_str.strip().isdigit():
-        idx = int(model_num_str.strip()) - 1
+    if model_input.strip().isdigit():
+        idx = int(model_input.strip()) - 1
         if 0 <= idx < len(MODEL_IDS):
             cur_idx = idx
 
@@ -378,52 +413,47 @@ def _do_panel():
     _set("model", model_id)
     _log(f"Model: {model_id}")
 
-    # ── STEP 3: Blueprint description + GENERATE ───────────────────────────────
-    prompt_hint = (
-        f"MCP — Describe Your Blueprint  [{model_label}]\n"
-        f"Describe the Blueprint you want in plain English.\n\n"
-        f"EXAMPLES:\n"
-        f"  Create an actor component that allows the player to fly\n"
-        f"  Create an enemy AI that chases the player and has 100 HP\n"
-        f"  Create a door that opens when the player walks near it\n"
-        f"  Create a health pickup that gives 25 HP on overlap\n"
-        f"  Create a turret that rotates toward the player every tick\n"
-        f"  Create a collectible coin that disappears on pickup\n\n"
-        f"Watch the Output Log for progress (~10-30 s).\n"
-        f"The Blueprint will appear under  /Game/MCP/  in the Content Browser.\n"
-        f"─────────────────────────────────────────────────────────────────"
+    # ── STEP 3: Blueprint description ─────────────────────────────────────────
+    prompt_msg = (
+        f"Model: {model_label}\n\n"
+        "Describe the Blueprint you want in plain English.\n\n"
+        "Examples:\n"
+        "  Create an actor component that allows the player to fly\n"
+        "  Create an enemy AI that chases the player and has 100 HP\n"
+        "  Create a door that opens when the player walks near it\n"
+        "  Create a health pickup that gives 25 HP on overlap\n"
+        "  Create a turret that rotates toward the player every tick\n\n"
+        "Watch the Output Log for progress. The Blueprint appears in /Game/MCP/"
     )
 
-    prompt_val = _prompt_text(
-        title="Describe Blueprint",
+    prompt_val = _show_input(
+        title="Describe Your Blueprint",
+        message=prompt_msg,
         default_value="Create an actor component that allows the player to fly",
-        hint=prompt_hint,
-        width=700, height=440,
     )
 
     if not prompt_val or not prompt_val.strip():
         _log("No prompt entered — cancelled.")
-        # Re-open immediately so the panel feels persistent
-        _main_queue.put(_run_panel)
+        # Re-open panel (safe because _dialog_open will be False by then)
+        _main_queue.put(_open_panel_safe)
         return
 
     prompt = prompt_val.strip()
     _log("=" * 60)
     _log(f"Prompt : {prompt}")
     _log(f"Model  : {model_id}")
-    _log("Generating … Blueprint will appear in /Game/MCP/")
+    _log("Generating… Blueprint will appear in /Game/MCP/")
     _log("=" * 60)
 
-    # After generation completes, re-open the panel automatically
-    _generate(prompt, saved_key, model_id, reopen_panel=True)
+    _generate(prompt, saved_key, model_id)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Blueprint generation (fetch on daemon thread, execute on game thread)
+# Blueprint generation
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _generate(prompt, api_key, model_id, reopen_panel=True):
-    """Kick off AI fetch + Blueprint creation (returns immediately)."""
+def _generate(prompt, api_key, model_id):
+    """Kick off AI fetch + Blueprint creation on a daemon thread."""
 
     def _fetch_worker():
         import urllib.request, urllib.error
@@ -432,14 +462,13 @@ def _generate(prompt, api_key, model_id, reopen_panel=True):
             import blueprint_executor
         except Exception as e:
             _err(f"Cannot import blueprint_executor: {e}")
-            if reopen_panel:
-                _main_queue.put(_run_panel)
+            _main_queue.put(_open_panel_safe)
             return
 
         try:
-            _log(f"Calling {model_id} …")
+            _log(f"Calling {model_id}…")
             payload = json.dumps({
-                "model": model_id,
+                "model":       model_id,
                 "temperature": 0.2,
                 "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
@@ -462,85 +491,121 @@ def _generate(prompt, api_key, model_id, reopen_panel=True):
             with urllib.request.urlopen(req, timeout=90) as r:
                 data = json.loads(r.read().decode())
 
+        except urllib.error.HTTPError as e:
+            body = ""
+            try:
+                body = e.read().decode(errors="replace")[:400]
+            except Exception:
+                pass
+            _err(f"HTTP {e.code}: {body}")
+            _main_queue.put(_open_panel_safe)
+            return
+        except Exception:
+            _err(f"Network error:\n{traceback.format_exc()}")
+            _main_queue.put(_open_panel_safe)
+            return
+
+        # Parse response
+        try:
             content = data["choices"][0]["message"]["content"].strip()
-            if content.startswith("```"):
-                content = "\n".join(
-                    line for line in content.split("\n")
-                    if not line.startswith("```")
-                ).strip()
+        except (KeyError, IndexError) as e:
+            _err(f"Unexpected API response structure: {e}")
+            _main_queue.put(_open_panel_safe)
+            return
 
-            result   = json.loads(content)
-            commands = result.get("commands", [])
-            bp_name  = result.get("blueprint_name", "BP_Generated")
-            _log(f"AI returned {len(commands)} commands → {bp_name}")
+        # Strip markdown fences if model added them
+        if content.startswith("```"):
+            lines = content.split("\n")
+            content = "\n".join(
+                line for line in lines
+                if not line.startswith("```")
+            ).strip()
 
-            if not commands:
-                _err("No commands in AI response.  Try rephrasing your prompt.")
-                if reopen_panel:
-                    _main_queue.put(_run_panel)
-                return
+        try:
+            result = json.loads(content)
+        except json.JSONDecodeError as e:
+            _err(f"AI returned invalid JSON: {e}\nContent: {content[:300]}")
+            _main_queue.put(_open_panel_safe)
+            return
 
-            def _apply():
+        commands = result.get("commands", [])
+        bp_name  = result.get("blueprint_name", "BP_Generated")
+
+        _log(f"AI returned {len(commands)} commands for {bp_name}")
+
+        if not commands:
+            _err("No commands in AI response. Try rephrasing your prompt.")
+            _main_queue.put(_open_panel_safe)
+            return
+
+        # Post Blueprint creation to main thread
+        def _apply():
+            try:
+                import unreal as _u
+                batch = blueprint_executor.execute_batch(commands)
+
+                succeeded = batch.get("succeeded", 0)
+                failed    = batch.get("failed", 0)
+                total     = batch.get("total", 0)
+
+                # Log summary
+                _log(f"{'OK' if failed == 0 else 'PARTIAL'}: {bp_name} — {succeeded}/{total} commands ok")
+                if succeeded > 0:
+                    _log(f"Find it: Content Browser → /Game/MCP/{bp_name}")
+
+                # Log any real failures (not warnings)
+                for r in batch.get("results", []):
+                    if not r.get("success") and not r.get("warning"):
+                        _warn(f"  FAIL: {r.get('message','?')}")
+
+                # Try to focus Content Browser on the new asset
                 try:
-                    import unreal as _u
-                    batch = blueprint_executor.execute_batch(commands)
-                    if batch.get("succeeded", 0) > 0:
-                        _log(f"✅ {bp_name} — {batch.get('succeeded',0)}/{batch.get('total',0)} commands ok")
-                        _log(f"   Find it in Content Browser → /Game/MCP/{bp_name}")
-                        try:
-                            _u.EditorAssetLibrary.sync_browser_to_objects([f"/Game/MCP/{bp_name}"])
-                        except Exception:
-                            pass
-                    else:
-                        _warn(f"Blueprint had errors: {batch.get('failed',0)} failed commands")
+                    _u.EditorAssetLibrary.sync_browser_to_objects(
+                        [f"/Game/MCP/{bp_name}"]
+                    )
+                except Exception:
+                    pass
 
-                    if batch.get("failed", 0) > 0:
-                        for r2 in batch.get("results", []):
-                            if not r2.get("success") and not r2.get("warning"):
-                                _warn(f"  FAIL: {r2.get('message','?')}")
+                # Try to open the Blueprint in the editor
+                try:
+                    asset = _u.load_asset(f"/Game/MCP/{bp_name}.{bp_name}")
+                    if asset:
+                        _u.AssetEditorSubsystem().open_editor_for_assets([asset])
+                except Exception:
+                    pass
 
-                    # Show completion notification then re-open panel
-                    success = batch.get("succeeded", 0) > 0
-                    title = "✅ Blueprint Created!" if success else "⚠️ Blueprint Partial"
-                    body = (
-                        f"Blueprint: {bp_name}\n"
-                        f"Commands: {batch.get('succeeded',0)} ok / {batch.get('failed',0)} failed\n\n"
-                        f"{'Find it in Content Browser → /Game/MCP/' + bp_name if success else 'Check Output Log for details.'}\n\n"
+                # Show result notification
+                if succeeded > 0:
+                    msg = (
+                        f"Blueprint created: {bp_name}\n"
+                        f"Location: /Game/MCP/{bp_name}\n"
+                        f"Commands: {succeeded} ok, {failed} failed\n\n"
+                        f"The Blueprint editor should open automatically.\n"
+                        f"Check the Output Log for wiring instructions — search for\n"
+                        f"  [MCPBlueprint] BLUEPRINT LOGIC\n\n"
                         f"Click OK to generate another Blueprint."
                     )
-                    try:
-                        _u.EditorDialog.show_message(
-                            title, body,
-                            _u.AppMsgType.OK, _u.AppReturnType.OK,
-                            _u.AppMsgCategory.INFO if success else _u.AppMsgCategory.WARNING,
-                        )
-                    except Exception:
-                        pass
+                    _show_message(
+                        "Blueprint Created!",
+                        msg,
+                        _u.AppMsgType.OK, _u.AppReturnType.OK, _u.AppMsgCategory.INFO,
+                    )
+                else:
+                    _show_message(
+                        "Blueprint Error",
+                        f"Blueprint {bp_name} had errors.\nCheck Output Log for details.\n\nClick OK to try again.",
+                        _u.AppMsgType.OK, _u.AppReturnType.OK, _u.AppMsgCategory.WARNING,
+                    )
 
-                    # Re-open panel
-                    if reopen_panel:
-                        _run_panel()
+            except Exception:
+                _err(f"Blueprint apply failed:\n{traceback.format_exc()}")
 
-                except Exception:
-                    _err(f"Blueprint apply failed:\n{traceback.format_exc()}")
-                    if reopen_panel:
-                        _run_panel()
+            # Re-open panel (safe — _dialog_open is False here since we're
+            # called from queue drain, not from within _open_panel_safe)
+            _main_queue.put(_open_panel_safe)
 
-            _main_queue.put(_apply)
-            _log("Blueprint commands queued for main-thread execution …")
-
-        except urllib.error.HTTPError as e:
-            _err(f"HTTP {e.code}: {e.read().decode(errors='replace')[:300]}")
-            if reopen_panel:
-                _main_queue.put(_run_panel)
-        except json.JSONDecodeError as e:
-            _err(f"Bad JSON from AI: {e}")
-            if reopen_panel:
-                _main_queue.put(_run_panel)
-        except Exception:
-            _err(f"Unexpected error:\n{traceback.format_exc()}")
-            if reopen_panel:
-                _main_queue.put(_run_panel)
+        _main_queue.put(_apply)
+        _log("Blueprint commands queued for main-thread execution…")
 
     threading.Thread(target=_fetch_worker, daemon=True, name="MCPFetch").start()
 
@@ -559,7 +624,7 @@ def _register_menu():
     import unreal as _u
 
     try:
-        menus = _u.ToolMenus.get()
+        menus    = _u.ToolMenus.get()
         main_menu = menus.find_menu("LevelEditor.MainMenu")
         if not main_menu:
             return False
@@ -570,7 +635,6 @@ def _register_menu():
             "MCPBlueprintMenu",
             "MCP AI",
         )
-
         if not sub_menu:
             _warn("add_sub_menu returned None — menu bar not ready yet.")
             return False
@@ -588,7 +652,7 @@ def _register_menu():
         _u.ToolMenus.get().refresh_all_widgets()
 
         _menu_entry_instance = entry_script
-        _log("✔ 'MCP AI' menu registered. Click MCP AI → Generate Blueprint with AI...")
+        _log("'MCP AI' menu registered. Click MCP AI → Generate Blueprint with AI...")
         return True
 
     except Exception as e:
@@ -608,12 +672,12 @@ _tick_count   = 0
 def _tick_drain(delta):
     """
     Permanent Slate post-tick callback.
-    A) Drains _main_queue on the game thread (Blueprint command execution).
-    B) On startup: registers menu, opens panel once.
+    A) Drains _main_queue on the game thread every frame.
+    B) On startup: registers menu, opens startup panel once.
     """
     global _startup_done, _menu_done, _tick_count
 
-    # Drain main queue every tick
+    # Always drain queue
     try:
         while not _main_queue.empty():
             fn = _main_queue.get_nowait()
@@ -631,7 +695,7 @@ def _tick_drain(delta):
 
     if _tick_count > 900:
         _startup_done = True
-        _warn("Startup timed out.")
+        _warn("Startup timed out after 900 ticks.")
         _log("Open manually: MCP AI menu, or: import mcp_ui; mcp_ui.show()")
         return
 
@@ -640,13 +704,10 @@ def _tick_drain(delta):
         if not _menu_done:
             return
 
+    # Menu is up — open startup panel on next tick
     _startup_done = True
-    _log(f"Editor ready at tick {_tick_count}. Opening MCP Blueprint Generator…")
-    try:
-        _run_panel()
-    except Exception:
-        _warn(f"Auto-open panel failed:\n{traceback.format_exc()}")
-        _log("Fallback: MCP AI menu, or: import mcp_ui; mcp_ui.show()")
+    _log(f"Editor ready (tick {_tick_count}). Opening MCP Blueprint Generator…")
+    _main_queue.put(_open_panel_safe)
 
 
 def _schedule_startup():
@@ -663,13 +724,13 @@ def _schedule_startup():
         _log("Slate tick callback registered (permanent).")
         return
     except AttributeError:
-        _warn("register_slate_post_tick_callback not available — running synchronously.")
+        _warn("register_slate_post_tick_callback not available — trying sync startup.")
     except Exception as e:
-        _warn(f"Slate tick registration failed: {e} — running synchronously.")
+        _warn(f"Slate tick registration failed: {e} — trying sync startup.")
 
     _register_menu()
     try:
-        _run_panel()
+        _open_panel_safe()
     except Exception as e:
         _warn(f"Sync startup failed: {e}")
         _log("Open manually: import mcp_ui; mcp_ui.show()")
@@ -678,6 +739,7 @@ def _schedule_startup():
 # ─────────────────────────────────────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────
+
 def show():
     """Open the MCP Blueprint Generator panel.
     Usage: import mcp_ui; mcp_ui.show()
@@ -685,41 +747,45 @@ def show():
     if not _IN_UNREAL:
         print("[MCPBlueprint] Not running inside Unreal Engine.")
         return
-    try:
-        _run_panel()
-    except Exception:
-        _warn(f"show() failed:\n{traceback.format_exc()}")
+    _enqueue_show()
 
 
 def set_key(key: str):
-    """Save your OpenRouter API key.  Usage: mcp_ui.set_key('sk-or-v1-...')"""
+    """Save your OpenRouter API key.
+    Usage: mcp_ui.set_key('sk-or-v1-...')
+    """
     _set("api_key", key.strip())
     _log(f"API key saved (ends: …{key.strip()[-8:]})")
 
 
 def set_model(model: str):
-    """Select a model by label or ID.  Usage: mcp_ui.set_model('gpt-4o')"""
+    """Select a model by label or ID.
+    Usage: mcp_ui.set_model('gpt-4o')
+    """
     for label, mid in MODELS:
         if model.lower() in label.lower() or model == mid:
             _set("model", mid)
             _log(f"Model set: {mid}")
             return
-    _warn(f"Unknown model '{model}'.  Run mcp_ui.list_models() to see options.")
+    _warn(f"Unknown model '{model}'. Run mcp_ui.list_models() to see options.")
 
 
 def run(prompt: str, model: str = ""):
-    """Generate a Blueprint without opening the dialog.
+    """Generate a Blueprint without the dialog.
     Usage: mcp_ui.run('Create an enemy AI that chases the player')
     """
+    if not _IN_UNREAL:
+        print("[MCPBlueprint] Not running inside Unreal Engine.")
+        return
     api_key = _get("api_key", "")
     if not api_key:
-        _err("No API key.  Run: mcp_ui.set_key('sk-or-v1-...')")
+        _err("No API key. Run: mcp_ui.set_key('sk-or-v1-...')")
         return
     if model:
         set_model(model)
     model_id = _get("model", DEFAULT_MODEL)
     _log(f"run() → {model_id}")
-    _generate(prompt.strip(), api_key, model_id, reopen_panel=False)
+    _generate(prompt.strip(), api_key, model_id)
 
 
 def list_models():
@@ -734,13 +800,13 @@ def status():
     key   = _get("api_key", "")
     model = _get("model", DEFAULT_MODEL)
     _log(f"Config: {_CFG}")
-    _log(f"API key : {'…' + key[-8:] if key else '(not set)'}")
+    _log(f"API key : {'...' + key[-8:] if key else '(not set)'}")
     _log(f"Model   : {model}")
 
 
 def start():
     """Called automatically by init_unreal.py when the plugin loads."""
-    _log("MCP Blueprint Generator v1.6.0 starting…")
+    _log("MCP Blueprint Generator v1.7.0 starting…")
 
     if _IN_UNREAL:
         try:
@@ -758,6 +824,7 @@ def start():
     else:
         _log("First run — API key dialog will open shortly.")
         _log("Get a FREE key at:  https://openrouter.ai/keys")
+        _log("Fallback: import mcp_ui; mcp_ui.set_key('sk-or-v1-...')")
 
     if _IN_UNREAL:
         _schedule_startup()

@@ -1,15 +1,22 @@
 """
 init_unreal.py
-Unreal Engine automatically executes this file when the MCPBlueprint plugin is enabled.
-(Any file named init_unreal.py inside a plugin's Content/Python/ folder is auto-run.)
+Auto-executed by Unreal Engine when the MCPBlueprint plugin is enabled.
 
-This is the ONLY entry point. It starts the self-contained AI panel which:
-  - Calls OpenAI directly from inside Unreal (no external server needed)
-  - Lets the user type a prompt and generates a fully wired Blueprint
-  - Saves the OpenAI API key locally so you only enter it once
+Opens a floating Qt window with:
+  - Model switcher dropdown (Claude / Gemini / DeepSeek / GPT-4o)
+  - API key input (auto-saved)
+  - Prompt field + Generate button
+  - Live output log
+
+Reopen the window any time:
+    import mcp_ui; mcp_ui.show()
+
+Or use the Python console:
+    import ai_panel
+    ai_panel.set_key("sk-or-v1-...")
+    ai_panel.run("Create an enemy that chases the player")
 """
 
-import ai_panel
+import mcp_ui
 
-# Start the AI panel — registers the Window menu entry and loads saved settings
-ai_panel.start()
+mcp_ui.start()

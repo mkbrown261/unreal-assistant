@@ -504,7 +504,7 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
     <button class="nav-link" onclick="go('install')">Install</button>
     <button class="nav-link" onclick="go('translator')">Translator</button>
     <button class="nav-link" onclick="go('plugin')">Plugin Docs</button>
-    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.1.0/MCPBlueprint-v1.1.0.zip" class="dl-btn">⬇ Download Plugin</a>
+    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.2.0/MCPBlueprint-v1.2.0.zip" class="dl-btn">⬇ Download Plugin</a>
   </div>
 </nav>
 
@@ -517,7 +517,7 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
     calls AI, and creates fully wired, compiled Blueprints. No Node.js. No terminal. No server.
   </p>
   <div class="hero-actions">
-    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.1.0/MCPBlueprint-v1.1.0.zip" class="btn-primary">⬇ Download Plugin v1.1.0</a>
+    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.2.0/MCPBlueprint-v1.2.0.zip" class="btn-primary">⬇ Download Plugin v1.2.0</a>
     <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-ghost">⭐ GitHub Source</a>
   </div>
   <div class="stats">
@@ -636,7 +636,7 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
           <p><strong>1a — Download and extract</strong></p>
           <p>Click the button below. Extract the zip. You'll get a folder called <code>MCPBlueprint</code>.</p>
           <div style="margin-top:10px;margin-bottom:18px;">
-            <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.1.0/MCPBlueprint-v1.1.0.zip" class="btn-primary" style="display:inline-block;text-decoration:none;">⬇ Download MCPBlueprint-v1.1.0.zip</a>
+            <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.2.0/MCPBlueprint-v1.2.0.zip" class="btn-primary" style="display:inline-block;text-decoration:none;">⬇ Download MCPBlueprint-v1.2.0.zip</a>
           </div>
 
           <p><strong>1b — Find your Unreal project folder</strong></p>
@@ -688,10 +688,10 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
             Go to <strong>Edit → Plugins</strong>. Search for <strong>"MCP Blueprint Generator"</strong>.<br/>
             Check the box to enable it. Click <strong>Restart Now</strong>.
           </p>
-          <p style="margin-top:12px;">After restart, open <strong>Window → Output Log</strong>. You should see:</p>
-          <div class="code">[MCPBlueprint] MCP Blueprint Generator loaded.
-[MCPBlueprint] Set your key with: import ai_panel; ai_panel.set_key('sk-...')</div>
-          <p style="margin-top:10px;color:var(--green);font-size:13px;font-weight:600;">✓ Plugin is installed and running.</p>
+          <p style="margin-top:12px;">After restart, a floating <strong>MCP Blueprint Generator</strong> panel opens automatically inside Unreal. You'll also see in the Output Log:</p>
+          <div class="code">[MCPBlueprint] MCP Blueprint Generator v1.2.0 — opening UI panel…</div>
+          <p style="margin-top:10px;color:var(--green);font-size:13px;font-weight:600;">✓ Plugin is running. The panel is open and waiting.</p>
+          <p style="margin-top:8px;color:var(--text3);font-size:12px;">Panel closed? Reopen it anytime from the Output Log Python console: <code>import mcp_ui; mcp_ui.show()</code></p>
         </div>
       </div>
 
@@ -699,10 +699,21 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
       <div class="step">
         <div class="step-num">3</div>
         <div>
-          <h3>Open the Output Log and switch to Python mode</h3>
-          <p>In Unreal, go to <strong>Window → Output Log</strong>. At the very bottom of the Output Log panel there is a text input bar. On the left side of that bar is a dropdown — click it and select <strong>Python</strong>.</p>
+          <h3>Paste your OpenRouter API key into the panel</h3>
+          <p>In the floating panel, find the <strong>OPENROUTER API KEY</strong> field and paste your key. It's saved automatically — you only do this once.</p>
+
+          <!-- Key field mockup -->
+          <div style="margin:14px 0;background:#0b0f1a;border:1.5px solid #1e2d45;border-radius:12px;padding:16px 18px;">
+            <div style="font-size:10px;font-weight:700;letter-spacing:.1em;color:#475569;margin-bottom:8px;">OPENROUTER API KEY</div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <div style="flex:1;background:#111827;border:1.5px solid #2d3f60;border-radius:8px;padding:9px 14px;font-family:monospace;font-size:12px;color:#64748b;">sk-or-v1-••••••••••••••••••••••••••</div>
+              <div style="background:transparent;border:1px solid #1e2d45;border-radius:6px;padding:5px 12px;font-size:11px;color:#64748b;">Show</div>
+            </div>
+            <div style="margin-top:8px;font-size:11px;color:#a855f7;">→ Get a free key at openrouter.ai/keys</div>
+          </div>
+
           <div style="margin-top:10px;background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.2);border-radius:10px;padding:14px 16px;font-size:13px;color:var(--text2);line-height:1.7;">
-            <strong style="color:var(--purple3);">Can't see the input bar?</strong> Drag the bottom edge of the Output Log panel to make it taller — the input is at the very bottom.
+            <strong style="color:var(--purple3);">Get a free OpenRouter key →</strong> <a href="https://openrouter.ai/keys" target="_blank" style="color:var(--purple3);font-weight:600;">openrouter.ai/keys</a> — one key gives you access to Claude, Gemini, DeepSeek, and GPT-4o. Keys start with <code>sk-or-v1-</code>.
           </div>
         </div>
       </div>
@@ -711,79 +722,63 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
       <div class="step">
         <div class="step-num">4</div>
         <div>
-          <h3>Enter your OpenRouter API key — one time only</h3>
-          <p>Click in the Python input box and paste this, replacing the key with your real one. Press <strong>Enter</strong>.</p>
-          <div class="code">import ai_panel; ai_panel.set_key("sk-or-v1-your-openrouter-key")</div>
-          <p style="margin-top:10px;color:var(--text3);font-size:13px;">The key is saved to your computer. You never need to type this again — even after restarting Unreal.</p>
-          <div style="margin-top:12px;background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.2);border-radius:10px;padding:14px 16px;font-size:13px;color:var(--text2);line-height:1.7;">
-            <strong style="color:var(--purple3);">Get a free OpenRouter key →</strong> <a href="https://openrouter.ai/keys" target="_blank" style="color:var(--purple3);font-weight:600;">openrouter.ai/keys</a> — one key gives you access to Claude, Gemini, DeepSeek, and GPT-4o. Keys start with <code>sk-or-v1-</code>.
+          <h3>Pick a model from the dropdown — then type your prompt and click Generate</h3>
+          <p>The <strong>MODEL</strong> dropdown is always at the top of the panel. Click it to switch between Claude, Gemini, DeepSeek, and GPT-4o instantly — no commands, no terminal.</p>
+
+          <!-- Model dropdown mockup -->
+          <div style="margin:14px 0;background:#0d0d1f;border-bottom:1px solid #1e2d45;border-radius:12px 12px 0 0;padding:10px 18px;display:flex;align-items:center;gap:12px;">
+            <span style="font-size:10px;font-weight:700;letter-spacing:.08em;color:#64748b;">MODEL</span>
+            <div style="background:#1a2744;border:1.5px solid #2d3f60;border-radius:20px;padding:6px 36px 6px 14px;font-size:13px;font-weight:600;color:#c4b5fd;min-width:240px;">Claude Sonnet 4.5  ★  (recommended)</div>
           </div>
-        </div>
-      </div>
-
-      <!-- STEP 5 -->
-      <div class="step">
-        <div class="step-num">5</div>
-        <div>
-          <h3>Pick a model (optional) and generate</h3>
-          <p>The default model is <strong>Claude Sonnet 4.5</strong>. To switch, use <code>set_model()</code> — then just <code>run()</code> your prompt:</p>
-
-          <!-- Model picker grid -->
-          <div style="margin:14px 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;">
-
-            <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;">
-              <div style="font-size:11px;font-weight:700;color:var(--purple3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">Claude (Anthropic)</div>
-              <div class="code" style="font-size:11px;line-height:2;">ai_panel.set_model("claude-sonnet-4.5")    # recommended
-ai_panel.set_model("claude-opus-4.5")      # most capable
-ai_panel.set_model("claude-3.7-sonnet")
-ai_panel.set_model("claude-3.7-sonnet-think") # with reasoning
-ai_panel.set_model("claude-haiku-4.5")     # fastest</div>
-            </div>
-
-            <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;">
-              <div style="font-size:11px;font-weight:700;color:var(--cyan);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">Gemini (Google)</div>
-              <div class="code" style="font-size:11px;line-height:2;">ai_panel.set_model("gemini-2.5-pro")       # best overall
-ai_panel.set_model("gemini-2.5-flash")     # fast + smart
-ai_panel.set_model("gemini-3.1-pro")       # latest
-ai_panel.set_model("gemini-3-flash")
-ai_panel.set_model("gemini-2.0-flash")     # lightweight</div>
-            </div>
-
-            <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;">
-              <div style="font-size:11px;font-weight:700;color:var(--green);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">DeepSeek</div>
-              <div class="code" style="font-size:11px;line-height:2;">ai_panel.set_model("deepseek-v3.2")        # best coder
-ai_panel.set_model("deepseek-v3.2-speciale")
-ai_panel.set_model("deepseek-r1")          # with reasoning
-ai_panel.set_model("deepseek-r1-0528")     # latest R1
-ai_panel.set_model("deepseek-r1-chimera")  # R1T2 hybrid</div>
-            </div>
-
-            <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;">
-              <div style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">GPT-4o (OpenAI)</div>
-              <div class="code" style="font-size:11px;line-height:2;">ai_panel.set_model("gpt-4o")
-ai_panel.set_model("gpt-4o-mini")          # cheapest</div>
-              <div style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.08em;text-transform:uppercase;margin:12px 0 8px;">Utilities</div>
-              <div class="code" style="font-size:11px;line-height:2;">ai_panel.list_models()   # print all models
-ai_panel.status()        # show current settings</div>
-            </div>
-
+          <div style="background:#0b0f1a;border:1.5px solid #1e2d45;border-top:none;border-radius:0 0 12px 12px;padding:14px 18px;">
+            <div style="font-size:10px;font-weight:700;letter-spacing:.1em;color:#475569;margin-bottom:8px;">DESCRIBE THE BLUEPRINT YOU WANT</div>
+            <div style="background:#111827;border:1.5px solid #2d3f60;border-radius:8px;padding:10px 14px;font-size:13px;color:#64748b;min-height:56px;">Create an enemy AI that chases the player and has 100 health</div>
+            <div style="margin-top:10px;background:linear-gradient(90deg,#9333ea,#4f46e5);border-radius:8px;padding:12px 18px;text-align:center;font-size:13px;font-weight:700;color:white;">⚡  Generate Blueprint</div>
           </div>
 
-          <p style="margin-top:4px;font-weight:600;font-size:13px;">Then generate:</p>
-          <div class="code">ai_panel.run("Create an enemy that chases the player")
-ai_panel.run("Create a door that opens when the player walks near it")
-ai_panel.run("Create a health pickup that gives 25 health on overlap")
-ai_panel.run("Create a turret that rotates toward the player every tick")
-ai_panel.run("Create a timer that ends the game after 60 seconds")</div>
-          <p style="margin-top:12px;">Watch the Output Log:</p>
-          <div class="code">[MCPBlueprint] Prompt: "Create an enemy that chases the player"
-[MCPBlueprint] Model:  anthropic/claude-sonnet-4.5
-[MCPBlueprint] Calling OpenRouter...
-[MCPBlueprint] AI returned 7 commands → BP_Enemy
-[MCPBlueprint] SUCCESS — BP_Enemy created (7/7 commands)
-[MCPBlueprint] Find it in Content Browser → /Game/MCP/BP_Enemy</div>
+          <!-- Available models grid -->
+          <div style="margin:18px 0 6px;font-weight:600;font-size:13px;color:var(--text2);">Available models in the dropdown:</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin-top:8px;">
+            <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+              <div style="font-size:10px;font-weight:700;color:var(--purple3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">Claude (Anthropic)</div>
+              <ul style="margin:0;padding-left:16px;font-size:12px;color:var(--text3);line-height:2;">
+                <li>Claude Sonnet 4.5 ★</li><li>Claude Opus 4.5 (most capable)</li>
+                <li>Claude 3.7 Sonnet</li><li>Claude 3.7 Sonnet (Thinking)</li>
+                <li>Claude Haiku 4.5 (fastest)</li>
+              </ul>
+            </div>
+            <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+              <div style="font-size:10px;font-weight:700;color:var(--cyan);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">Gemini (Google)</div>
+              <ul style="margin:0;padding-left:16px;font-size:12px;color:var(--text3);line-height:2;">
+                <li>Gemini 2.5 Pro ★</li><li>Gemini 2.5 Flash</li>
+                <li>Gemini 3.1 Pro Preview</li><li>Gemini 3 Flash Preview</li>
+                <li>Gemini 2.0 Flash</li>
+              </ul>
+            </div>
+            <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+              <div style="font-size:10px;font-weight:700;color:var(--green);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">DeepSeek</div>
+              <ul style="margin:0;padding-left:16px;font-size:12px;color:var(--text3);line-height:2;">
+                <li>DeepSeek V3.2 ★</li><li>DeepSeek V3.2 Speciale</li>
+                <li>DeepSeek R1 0528 (reasoning)</li><li>DeepSeek R1</li>
+                <li>DeepSeek R1T2 Chimera</li>
+              </ul>
+            </div>
+            <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+              <div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">GPT-4o (OpenAI)</div>
+              <ul style="margin:0;padding-left:16px;font-size:12px;color:var(--text3);line-height:2;">
+                <li>GPT-4o</li><li>GPT-4o Mini (most affordable)</li>
+              </ul>
+            </div>
+          </div>
+
+          <p style="margin-top:16px;">Watch the panel's <strong>OUTPUT LOG</strong> as it generates:</p>
+          <div class="code">📝  Create an enemy that chases the player
+🤖  anthropic/claude-sonnet-4.5
+⏳  Calling OpenRouter…
+✅  AI returned 7 commands → BP_Enemy
+🎉  BP_Enemy created — 7/7 commands OK
+📂  Content Browser → /Game/MCP/BP_Enemy</div>
           <p style="margin-top:12px;color:var(--green);font-size:13px;font-weight:600;">✓ Open Content Browser → MCP folder. Blueprint is there, fully wired and compiled.</p>
-          <p style="margin-top:6px;color:var(--text3);font-size:12px;">You can also pass model inline: <code>ai_panel.run("prompt", model="gemini-2.5-pro")</code></p>
         </div>
       </div>
 
@@ -960,7 +955,7 @@ ai_panel.run("Create a timer that ends the game after 60 seconds")</div>
       <h3>Download the Plugin</h3>
       <p>Drop the folder in, enable it, type prompts. That's it. No Node.js, no terminal, no compilation. MIT licensed, open source.</p>
       <div class="dl-links">
-        <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.1.0/MCPBlueprint-v1.1.0.zip" class="btn-primary">⬇ Download v1.1.0 (.zip)</a>
+        <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.2.0/MCPBlueprint-v1.2.0.zip" class="btn-primary">⬇ Download v1.2.0 (.zip)</a>
         <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-ghost">⭐ View Source on GitHub</a>
       </div>
       <p style="margin-top:20px;font-size:12px;color:var(--text3)">Unreal Engine 5.1+ · Python Script Plugin · MIT License · No compilation required</p>

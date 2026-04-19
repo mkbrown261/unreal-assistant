@@ -504,7 +504,7 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
     <button class="nav-link" onclick="go('install')">Install</button>
     <button class="nav-link" onclick="go('translator')">Translator</button>
     <button class="nav-link" onclick="go('plugin')">Plugin Docs</button>
-    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.2.0/MCPBlueprint-v1.2.0.zip" class="dl-btn">⬇ Download Plugin</a>
+    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.7.1/MCPBlueprint-v1.7.1.zip" class="dl-btn">⬇ Download Plugin</a>
   </div>
 </nav>
 
@@ -517,7 +517,7 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
     calls AI, and creates fully wired, compiled Blueprints. No Node.js. No terminal. No server.
   </p>
   <div class="hero-actions">
-    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.2.0/MCPBlueprint-v1.2.0.zip" class="btn-primary">⬇ Download Plugin v1.2.0</a>
+    <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.7.1/MCPBlueprint-v1.7.1.zip" class="btn-primary">⬇ Download Plugin v1.7.1</a>
     <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-ghost">⭐ GitHub Source</a>
   </div>
   <div class="stats">
@@ -636,7 +636,7 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
           <p><strong>1a — Download and extract</strong></p>
           <p>Click the button below. Extract the zip. You'll get a folder called <code>MCPBlueprint</code>.</p>
           <div style="margin-top:10px;margin-bottom:18px;">
-            <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.2.0/MCPBlueprint-v1.2.0.zip" class="btn-primary" style="display:inline-block;text-decoration:none;">⬇ Download MCPBlueprint-v1.2.0.zip</a>
+            <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.7.1/MCPBlueprint-v1.7.1.zip" class="btn-primary" style="display:inline-block;text-decoration:none;">⬇ Download MCPBlueprint-v1.7.1.zip</a>
           </div>
 
           <p><strong>1b — Find your Unreal project folder</strong></p>
@@ -689,7 +689,7 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
             Check the box to enable it. Click <strong>Restart Now</strong>.
           </p>
           <p style="margin-top:12px;">After restart you'll see a new <strong>🤖 MCP AI</strong> button appear in the Level Editor toolbar (top of the editor). You'll also see in the Output Log:</p>
-          <div class="code">[MCPBlueprint] MCP Blueprint Generator v1.2.0 loading…
+          <div class="code">[MCPBlueprint] MCP Blueprint Generator v1.7.1 loading…
 [MCPBlueprint] ✔ [MCP AI] button added to the Level Editor toolbar</div>
           <p style="margin-top:10px;color:var(--green);font-size:13px;font-weight:600;">✓ Plugin is running. Click the [MCP AI] toolbar button to open the generator.</p>
           <p style="margin-top:8px;color:var(--text3);font-size:12px;">On some setups a full floating window opens automatically. On others, the toolbar button is your entry point — both work identically.</p>
@@ -956,7 +956,7 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
       <h3>Download the Plugin</h3>
       <p>Drop the folder in, enable it, type prompts. That's it. No Node.js, no terminal, no compilation. MIT licensed, open source.</p>
       <div class="dl-links">
-        <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.2.0/MCPBlueprint-v1.2.0.zip" class="btn-primary">⬇ Download v1.2.0 (.zip)</a>
+        <a href="https://github.com/mkbrown261/unreal-assistant/releases/download/v1.7.1/MCPBlueprint-v1.7.1.zip" class="btn-primary">⬇ Download v1.7.1 (.zip)</a>
         <a href="https://github.com/mkbrown261/unreal-assistant" target="_blank" class="btn-ghost">⭐ View Source on GitHub</a>
       </div>
       <p style="margin-top:20px;font-size:12px;color:var(--text3)">Unreal Engine 5.1+ · Python Script Plugin · MIT License · No compilation required</p>

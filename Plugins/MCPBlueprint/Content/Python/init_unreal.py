@@ -1,22 +1,16 @@
 """
-init_unreal.py
-Auto-executed by Unreal Engine when the MCPBlueprint plugin is enabled.
+init_unreal.py — MCP Blueprint Generator
+Auto-runs when Unreal loads the MCPBlueprint plugin.
 
-Opens a floating Qt window with:
-  - Model switcher dropdown (Claude / Gemini / DeepSeek / GPT-4o)
-  - API key input (auto-saved)
-  - Prompt field + Generate button
-  - Live output log
-
-Reopen the window any time:
-    import mcp_ui; mcp_ui.show()
-
-Or use the Python console:
-    import ai_panel
-    ai_panel.set_key("sk-or-v1-...")
-    ai_panel.run("Create an enemy that chases the player")
+Opens the MCP Blueprint Generator panel automatically.
+The panel can be reopened at any time with:
+  import mcp_ui; mcp_ui.show()
 """
+import sys
+import os
+
+# Make the plugin's Python folder importable
+sys.path.insert(0, os.path.dirname(__file__))
 
 import mcp_ui
-
 mcp_ui.start()

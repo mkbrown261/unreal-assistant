@@ -652,16 +652,29 @@ footer{border-top:1px solid var(--border);padding:32px 40px;
 Mac:     Right-click → New Folder → name it "Plugins"</div>
           <p style="margin-top:10px;color:var(--text3);font-size:13px;">⚠️ It must be spelled exactly <code>Plugins</code> with a capital P. No spaces.</p>
 
-          <p style="margin-top:16px;"><strong>1d — Put MCPBlueprint inside Plugins</strong></p>
-          <p>Copy or drag the <code>MCPBlueprint</code> folder (from step 1a) into the <code>Plugins</code> folder you just created. The result should look like this:</p>
-          <div class="code">MyGame\
-├── MyGame.uproject
-├── Content\
-└── Plugins\                   ← you created this
-    └── MCPBlueprint\          ← you put this here
-        ├── MCPBlueprint.uplugin
-        └── Content\Python\</div>
-          <p style="margin-top:10px;color:var(--green);font-size:13px;font-weight:600;">✓ If you can see MCPBlueprint.uplugin inside Plugins\MCPBlueprint\ you're done with Step 1.</p>
+          <p style="margin-top:16px;"><strong>1d — Copy the whole MCPBlueprint folder into Plugins</strong></p>
+          <p>Take the entire <code>MCPBlueprint</code> folder — the folder itself, not just the files inside it — and copy it into <code>Plugins</code>.</p>
+
+          <!-- RIGHT vs WRONG -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px;">
+            <div>
+              <div style="font-size:12px;font-weight:700;color:var(--green);margin-bottom:6px;">✅ CORRECT</div>
+              <div class="code" style="font-size:11px;">Plugins\
+└── MCPBlueprint\
+    ├── MCPBlueprint.uplugin
+    └── Content\</div>
+              <p style="font-size:12px;color:var(--text3);margin-top:6px;">The whole MCPBlueprint folder is inside Plugins</p>
+            </div>
+            <div>
+              <div style="font-size:12px;font-weight:700;color:#f87171;margin-bottom:6px;">❌ WRONG</div>
+              <div class="code" style="font-size:11px;">Plugins\
+├── MCPBlueprint.uplugin
+└── Content\</div>
+              <p style="font-size:12px;color:var(--text3);margin-top:6px;">Don't put the files directly in Plugins — the folder needs to be there</p>
+            </div>
+          </div>
+
+          <p style="margin-top:14px;color:var(--green);font-size:13px;font-weight:600;">✓ Done when you can click into Plugins → MCPBlueprint and see MCPBlueprint.uplugin inside.</p>
         </div>
       </div>
 

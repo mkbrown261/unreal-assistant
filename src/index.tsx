@@ -699,17 +699,48 @@ Mac:     Right-click → New Folder → name it "Plugins"</div>
       <div class="step">
         <div class="step-num">3</div>
         <div>
-          <h3>Enter your OpenAI key once, then generate Blueprints</h3>
-          <p>
-            In the Output Log, click the <strong>Python console input</strong> at the bottom. Type your key (only needed once — it's saved):
-          </p>
-          <div class="code">import ai_panel; ai_panel.set_key("sk-your-openai-key-here")</div>
-          <p style="margin-top:14px;">Now generate any Blueprint by typing a plain-English prompt:</p>
-          <div class="code">ai_panel.run("Create an enemy AI that chases the player")
-ai_panel.run("Create a door that opens when the player walks near it")
-ai_panel.run("Create a health pickup that restores 25 health on overlap")</div>
-          <p style="margin-top:12px;color:var(--green);font-size:13px;font-weight:600;">✓ The Blueprint appears in your Content Browser under /Game/MCP/ — fully wired and compiled.</p>
-          <p style="margin-top:6px;color:var(--text3);font-size:12px;">You only need to call <code>set_key()</code> once. After that, just call <code>ai_panel.run("...")</code> anytime.</p>
+          <h3>Open the Output Log and switch to Python mode</h3>
+          <p>In Unreal, go to <strong>Window → Output Log</strong>. At the very bottom of the Output Log panel there is a text input bar. On the left side of that bar is a dropdown — click it and select <strong>Python</strong>.</p>
+          <div style="margin-top:10px;background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.2);border-radius:10px;padding:14px 16px;font-size:13px;color:var(--text2);line-height:1.7;">
+            <strong style="color:var(--purple3);">Can't see the input bar?</strong> Drag the bottom edge of the Output Log panel to make it taller — the input is at the very bottom.
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 4 -->
+      <div class="step">
+        <div class="step-num">4</div>
+        <div>
+          <h3>Enter your OpenAI key — one time only</h3>
+          <p>Click in the Python input box and type this, replacing the key with your real one. Press <strong>Enter</strong>.</p>
+          <div class="code">import ai_panel; ai_panel.set_key("sk-your-key-here")</div>
+          <p style="margin-top:10px;color:var(--text3);font-size:13px;">The key is saved to your computer. You never need to type this again — even after restarting Unreal.</p>
+          <div style="margin-top:12px;background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.2);border-radius:10px;padding:14px 16px;font-size:13px;color:var(--text2);line-height:1.7;">
+            <strong style="color:var(--purple3);">Don't have a key?</strong> Go to <a href="https://platform.openai.com/api-keys" target="_blank" style="color:var(--purple3);font-weight:600;">platform.openai.com/api-keys</a> → sign in → <strong>Create new secret key</strong>. Copy it — it starts with <code>sk-</code>.
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 5 -->
+      <div class="step">
+        <div class="step-num">5</div>
+        <div>
+          <h3>Generate a Blueprint by typing a prompt</h3>
+          <p>In the same Python input box, type what you want and press <strong>Enter</strong>:</p>
+          <div class="code">ai_panel.run("Create an enemy that chases the player")</div>
+          <p style="margin-top:12px;">Watch the Output Log. In a few seconds you'll see:</p>
+          <div class="code">[MCPBlueprint] Calling OpenAI...
+[MCPBlueprint] AI returned 6 commands for BP_Enemy
+[MCPBlueprint] SUCCESS: BP_Enemy created
+[MCPBlueprint] Find it in Content Browser → /Game/MCP/BP_Enemy</div>
+          <p style="margin-top:12px;color:var(--green);font-size:13px;font-weight:600;">✓ Open your Content Browser and look in the MCP folder. The Blueprint is there, fully wired and compiled.</p>
+
+          <p style="margin-top:16px;font-weight:600;font-size:13px;">More prompts to try:</p>
+          <div class="code">ai_panel.run("Create a door that opens when the player walks near it")
+ai_panel.run("Create a health pickup that gives 25 health on overlap")
+ai_panel.run("Create a turret that rotates toward the player every tick")
+ai_panel.run("Create a timer that ends the game after 60 seconds")</div>
+          <p style="margin-top:10px;color:var(--text3);font-size:13px;">From now on, <code>ai_panel.run("...")</code> is all you ever need to type.</p>
         </div>
       </div>
 

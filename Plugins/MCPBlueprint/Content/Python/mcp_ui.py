@@ -494,90 +494,10 @@ def _build_qt_window(QtWidgets, QtCore, QtGui):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Strategy 3 — Unreal EditorDialog (simple built-in dialogs, no Qt needed)
+# Strategy 3 — intentionally skipped (removed dialog popups that were annoying)
 # ─────────────────────────────────────────────────────────────────────────────
 def _try_unreal_dialog():
-    """
-    Use unreal.EditorDialog to ask for key + model + prompt one by one.
-    Works in any UE5 install without PySide2.
-    Returns True if user completed the flow, False if cancelled.
-    """
-    try:
-        import unreal
-    except ImportError:
-        return False
-
-    try:
-        # Load saved key
-        saved_key   = _cfg_get("api_key", "")
-        saved_model = _cfg_get("model", DEFAULT_MODEL)
-
-        # ── Prompt for API key ────────────────────────────────────────────────
-        key = unreal.EditorDialog.show_text_input_dialog(
-            title="MCP Blueprint Generator — Step 1 of 3",
-            message="Paste your OpenRouter API key below.\n\nGet a free key at: openrouter.ai/keys\nKeys start with:  sk-or-v1-",
-            default_value=saved_key,
-        )
-        if not key or not key.strip():
-            unreal.EditorDialog.show_message(
-                "MCP Blueprint Generator",
-                "No API key entered. Cancelled.\n\nTip: import mcp_ui; mcp_ui.show()  to reopen.",
-                unreal.AppMsgType.OK
-            )
-            return False
-        key = key.strip()
-        _cfg_set("api_key", key)
-
-        # ── Model selection ────────────────────────────────────────────────────
-        model_labels = [label for label, mid in SELECTABLE]
-        model_ids    = [mid   for label, mid in SELECTABLE]
-
-        # Find default index
-        try:
-            default_idx = model_ids.index(saved_model)
-        except ValueError:
-            default_idx = 0
-
-        # Show numbered list in a text box
-        model_list_str = "\n".join(f"{i+1}. {label}" for i, label in enumerate(model_labels))
-        choice_str = unreal.EditorDialog.show_text_input_dialog(
-            title="MCP Blueprint Generator — Step 2 of 3",
-            message=f"Type the NUMBER of the model you want (default: {default_idx+1}):\n\n{model_list_str}",
-            default_value=str(default_idx + 1),
-        )
-
-        if choice_str and choice_str.strip().isdigit():
-            idx = int(choice_str.strip()) - 1
-            if 0 <= idx < len(model_ids):
-                model_id = model_ids[idx]
-            else:
-                model_id = saved_model
-        else:
-            model_id = saved_model
-        _cfg_set("model", model_id)
-
-        # ── Prompt ────────────────────────────────────────────────────────────
-        prompt = unreal.EditorDialog.show_text_input_dialog(
-            title="MCP Blueprint Generator — Step 3 of 3",
-            message=f"Model: {model_id}\n\nDescribe the Blueprint you want to create:",
-            default_value="Create an enemy AI that chases the player",
-        )
-        if not prompt or not prompt.strip():
-            return False
-        prompt = prompt.strip()
-
-        # ── Generate ──────────────────────────────────────────────────────────
-        _log(f'Generating: "{prompt}"')
-        _log(f"Model: {model_id}")
-        _run_generate(prompt, key, model_id)
-        return True
-
-    except AttributeError:
-        # EditorDialog not available in this UE version
-        return False
-    except Exception as e:
-        _log_error(f"EditorDialog error: {e}")
-        return False
+    return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -585,47 +505,42 @@ def _try_unreal_dialog():
 # ─────────────────────────────────────────────────────────────────────────────
 def _console_menu():
     """
-    Interactive console-based menu.
-    Called when neither Qt nor EditorDialog is available.
-    Prints clear instructions to the Output Log.
+    Prints ready-to-use instructions to the Output Log.
+    Uses the already-saved key and model — asks for nothing.
     """
     saved_key   = _cfg_get("api_key", "")
     saved_model = _cfg_get("model", DEFAULT_MODEL)
 
     _log("═" * 60)
     _log("  MCP BLUEPRINT GENERATOR  v1.2.0")
+    _log("  (Qt window unavailable — use the Python console below)")
     _log("═" * 60)
-    _log("  The floating UI panel could not open automatically.")
-    _log("  Use these commands instead in the Output Log (Python mode):")
-    _log("")
-    _log("  ➤ STEP 1 — Set your API key (once only):")
-    _log('    import ai_panel')
-    _log('    ai_panel.set_key("sk-or-v1-your-key-here")')
-    _log("")
-    _log("  ➤ STEP 2 — Pick a model (optional, default = Claude Sonnet 4.5):")
-    _log('    ai_panel.set_model("claude-sonnet-4.5")   # recommended')
-    _log('    ai_panel.set_model("gemini-2.5-pro")')
-    _log('    ai_panel.set_model("deepseek-v3.2")')
-    _log('    ai_panel.set_model("gpt-4o")')
-    _log('    ai_panel.list_models()                     # see all options')
-    _log("")
-    _log("  ➤ STEP 3 — Generate a Blueprint:")
-    _log('    ai_panel.run("Create an enemy that chases the player")')
-    _log('    ai_panel.run("Create a door that opens on overlap")')
-    _log('    ai_panel.run("Create a health pickup that gives 25 HP")')
-    _log("")
+
     if saved_key:
-        _log(f"  ✓ API key already saved: …{saved_key[-8:]}")
-        _log(f"  ✓ Model: {saved_model}")
+        _log(f"  ✓ API key: …{saved_key[-8:]}  (already saved)")
+        _log(f"  ✓ Model:   {saved_model}")
         _log("")
-        _log('  You can generate right now:')
+        _log("  ➤ Generate a Blueprint — copy/paste into Python console:")
         _log('    import ai_panel')
         _log('    ai_panel.run("Create an enemy that chases the player")')
+        _log('    ai_panel.run("Create a door that opens when player walks near")')
+        _log('    ai_panel.run("Create a health pickup that gives 25 HP")')
+        _log("")
+        _log("  ➤ Switch model:")
+        _log('    ai_panel.set_model("gemini-2.5-pro")')
+        _log('    ai_panel.set_model("deepseek-v3.2")')
+        _log('    ai_panel.set_model("gpt-4o")')
+        _log('    ai_panel.list_models()   # see all options')
     else:
-        _log("  ⚠  No API key saved yet.")
+        _log("  ⚠  No API key found. Set it once:")
+        _log('    import ai_panel')
+        _log('    ai_panel.set_key("sk-or-v1-your-key-here")')
+        _log('    ai_panel.run("Create an enemy that chases the player")')
+        _log("")
         _log("  Get a free key at: openrouter.ai/keys")
+
     _log("═" * 60)
-    _log("  To retry opening the UI panel: import mcp_ui; mcp_ui.show()")
+    _log("  Switch the Output Log dropdown to PYTHON, then paste a command above.")
     _log("═" * 60)
 
 

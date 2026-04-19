@@ -530,13 +530,79 @@ def _prompt_text(title, field_label, default_value, hint=""):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Menu registration
+# Uses ToolMenus.extend_menu() + ToolMenuEntry.set_string_command(PYTHON)
+# — the correct UE 5.7 approach that requires NO class subclassing.
+# Adds "🤖 MCP Blueprint Generator" under the top-level Tools menu.
+# ─────────────────────────────────────────────────────────────────────────────
+_MENU_OWNER   = "MCPBlueprintPlugin"
+_MENU_SECTION = "MCPBlueprintSection"
+_ENTRY_NAME   = "MCPBlueprintOpen"
+
+# Python command string that the menu entry will execute when clicked.
+# Using a single-line string so UE can run it directly.
+_MENU_CMD = "import mcp_ui; mcp_ui.show()"
+
+def _register_menu():
+    """
+    Add an "MCP Blueprint Generator" item to the Level Editor Tools menu.
+
+    Implementation uses:
+      unreal.ToolMenus.get().extend_menu("LevelEditor.MainMenu.Tools")
+      entry.set_string_command(ToolMenuStringCommandType.PYTHON, ...)
+
+    This is the ONLY fully-working approach in UE 5.7 Python that does NOT
+    require subclassing ToolMenuEntryScript (which crashes at plugin startup).
+    """
+    import unreal
+
+    try:
+        menus = unreal.ToolMenus.get()
+
+        # "LevelEditor.MainMenu.Tools" is the standard UE Tools dropdown.
+        # extend_menu() is safe to call even before the menu is built.
+        menu = menus.extend_menu("LevelEditor.MainMenu.Tools")
+
+        # Add a labelled section to keep it tidy
+        menu.add_section(
+            _MENU_SECTION,
+            label="MCP AI",
+        )
+
+        # Build the entry
+        entry = unreal.ToolMenuEntry(
+            name=_ENTRY_NAME,
+            type=unreal.MultiBlockType.MENU_ENTRY,
+            should_close_window_after_menu_selection=True,
+        )
+        entry.set_label("🤖 MCP Blueprint Generator")
+        entry.set_tool_tip(
+            "Open the MCP Blueprint Generator dialog to create Blueprints with AI."
+        )
+        # PYTHON string command — fires import mcp_ui; mcp_ui.show() on click
+        entry.set_string_command(
+            unreal.ToolMenuStringCommandType.PYTHON,
+            custom_type="None",
+            string=_MENU_CMD,
+        )
+
+        menu.add_menu_entry(_MENU_SECTION, entry)
+        menus.refresh_all_widgets()
+        _log("✔ 'Tools → MCP Blueprint Generator' menu item added.")
+
+    except Exception as e:
+        _warn(f"Menu registration failed: {e}")
+        _log("You can still open the UI with: import mcp_ui; mcp_ui.show()")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Startup: open dialog once after Unreal finishes loading
 # ─────────────────────────────────────────────────────────────────────────────
 _startup_done  = False
 _tick_handler  = None
 
 def _on_tick(delta):
-    """SystemTickEventHandler callback — fires every editor tick after startup."""
+    """Slate post-tick callback — fires every frame after startup."""
     global _startup_done, _tick_handler
 
     if _startup_done:
@@ -544,56 +610,52 @@ def _on_tick(delta):
 
     _startup_done = True
 
-    # Unregister the tick handler so we only run once.
+    # Unregister immediately so this only runs once.
     try:
+        import unreal
         if _tick_handler is not None:
-            _tick_handler.__class__.unregister(_tick_handler)
+            unreal.unregister_slate_post_tick_callback(_tick_handler)
     except Exception:
         pass
+
+    # Register the menu NOW — editor is fully loaded at this point.
+    _register_menu()
 
     _log("Editor ready — opening MCP Blueprint Generator...")
     try:
         _run_dialog()
     except Exception:
         _warn(f"Auto-open failed:\n{traceback.format_exc()}")
-        _log("Run manually: import mcp_ui; mcp_ui.show()")
+        _log("Use Tools → MCP Blueprint Generator or: import mcp_ui; mcp_ui.show()")
 
 
 def _schedule_startup():
     """
-    Register a one-shot tick handler that fires after the editor finishes
-    its startup sequence.  This is the correct UE 5.7 way to defer work
-    until the editor is fully ready without using call_on_game_thread or
-    background threads.
+    Register a one-shot slate post-tick callback that fires once the editor
+    finishes its startup sequence, then registers the menu and opens the dialog.
+    This avoids call_on_game_thread (UE 5.7 doesn't have it) and threading hacks.
     """
     global _tick_handler
 
     import unreal
 
-    # SystemTickEventHandler fires every editor tick on the main thread.
     try:
         _tick_handler = unreal.register_slate_post_tick_callback(_on_tick)
-        _log("Startup tick handler registered — UI will open shortly.")
+        _log("Startup: slate tick registered — menu + UI will appear shortly.")
         return
     except AttributeError:
         pass
+    except Exception as e:
+        _warn(f"register_slate_post_tick_callback failed: {e}")
 
-    # Older UE 5.x API name
-    try:
-        _tick_handler = unreal.SlatePostTickHandle()
-        _tick_handler = unreal.register_slate_post_tick_callback(_on_tick)
-        _log("Startup tick registered (v2).")
-        return
-    except Exception:
-        pass
-
-    # If tick registration fails, open directly (synchronous fallback).
-    _warn("Tick handler unavailable — opening dialog synchronously.")
+    # Fallback: register menu and open dialog synchronously right now.
+    _warn("Tick callback unavailable — running startup synchronously.")
+    _register_menu()
     try:
         _run_dialog()
     except Exception as e:
         _warn(f"Sync open failed: {e}")
-        _log("Run manually: import mcp_ui; mcp_ui.show()")
+        _log("Use Tools menu or: import mcp_ui; mcp_ui.show()")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -680,7 +742,8 @@ def start():
     else:
         _log("First-time setup — API key dialog will appear shortly.")
 
-    _log("To reopen: import mcp_ui; mcp_ui.show()")
+    _log("Reopen anytime: Tools menu → 🤖 MCP Blueprint Generator")
+    _log("Or in Python console: import mcp_ui; mcp_ui.show()")
 
     if _IN_UNREAL:
         _schedule_startup()
